@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="es-CO">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#121611">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="Ancestrales: invoca a los guardianes de las leyendas colombianas en realidad aumentada.">
+  <title>Ancestrales AR</title>
+  <link rel="stylesheet" href="css/style.css">
+
+  <!-- three.js r160 (MIT), self-hosted unmodified in vendor/three, as ES modules. GLTFLoader imports the bare "three" specifier. -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three/build/three.module.min.js",
+        "three/addons/": "./vendor/three/examples/jsm/"
+      }
+    }
+  </script>
+
+  <!-- 8th Wall engine binary 1.0.0 (XR8), self-hosted unmodified in vendor/8thwall. The SLAM chunk is preloaded before window.XR8 appears. -->
+  <script src="vendor/8thwall/xr.js"
+          async data-preload-chunks="slam"
+          onerror="window.__xr8LoadFailed = true; window.dispatchEvent(new Event('xr8loaderror'))"></script>
+
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <!-- XR8 draws the camera feed and the three.js scene into this canvas. -->
+  <canvas id="ar-canvas" aria-label="Vista de realidad aumentada"></canvas>
+
+  <!-- Reusable emblem, drawn by hand for the project. -->
+  <svg width="0" height="0" class="sprite" aria-hidden="true" focusable="false">
+    <defs>
+      <symbol id="emblem" viewBox="0 0 120 120">
+        <circle cx="60" cy="60" r="56" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".9"/>
+        <circle cx="60" cy="60" r="49" fill="none" stroke="currentColor" stroke-width=".75" stroke-dasharray="2 5" opacity=".7"/>
+        <path d="M60 14 L64 22 L60 30 L56 22 Z" fill="currentColor"/>
+        <path d="M60 106 L64 98 L60 90 L56 98 Z" fill="currentColor" opacity=".6"/>
+        <path d="M30 58 q7.5 -8 15 0 t15 0 t15 0 t15 0" fill="none" stroke="var(--moss-light)" stroke-width="3" stroke-linecap="round"/>
+        <path d="M34 70 q6.5 -7 13 0 t13 0 t13 0 t13 0" fill="none" stroke="var(--moss)" stroke-width="2.5" stroke-linecap="round"/>
+        <path d="M40 81 q5 -5.5 10 0 t10 0 t10 0 t10 0" fill="none" stroke="var(--moss-dark)" stroke-width="2" stroke-linecap="round"/>
+        <circle cx="60" cy="44" r="4.5" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <circle cx="60" cy="44" r="1.6" fill="currentColor"/>
+      </symbol>
+    </defs>
+  </svg>
+
+  <main id="ui">
+    <!-- Start -->
+    <section class="screen screen--hero" data-screen="start" hidden>
+      <div class="hero">
+        <svg class="emblem" aria-hidden="true"><use href="#emblem"/></svg>
+        <p class="eyebrow">Ancestrales</p>
+        <h1 class="title" data-bind="guardian-name">El Mohán</h1>
+        <p class="subtitle" data-bind="guardian-tagline">Guardián de los ríos</p>
+        <p class="lead">Apunta la cámara al piso o a una mesa y el guardián aparecerá frente a ti.</p>
+        <button class="btn btn--primary" id="btn-start" type="button" disabled>
+          <span class="btn__label">Preparando…</span>
+        </button>
+        <p class="hint-small" id="start-status" aria-live="polite">Cargando el motor de realidad aumentada</p>
+      </div>
+      <footer class="credits credits--full">
+        <p>
+          Motor AR: <strong>8th Wall</strong>, de Niantic Spatial. © 2026 Niantic Spatial, Inc.
+          Se usa bajo su <a href="vendor/8thwall/LICENSE" target="_blank" rel="noopener">licencia</a>,
+          que se ofrece “tal cual”, sin garantías.
+        </p>
+        <p>
+          Render 3D: <a href="vendor/three/LICENSE" target="_blank" rel="noopener">three.js</a> (licencia MIT).
+          Modelo, interfaz y código: proyecto Ancestrales.
+        </p>
+      </footer>
+    </section>
+
+    <!-- Loading -->
+    <section class="screen screen--center" data-screen="loading" hidden>
+      <div class="loader" aria-hidden="true">
+        <svg viewBox="0 0 100 100" class="loader__ring">
+          <circle cx="50" cy="50" r="44" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4 8"/>
+          <circle cx="50" cy="50" r="34" fill="none" stroke="var(--moss-light)" stroke-width="2" stroke-dasharray="60 154" stroke-linecap="round"/>
+        </svg>
+        <svg class="loader__emblem"><use href="#emblem"/></svg>
+      </div>
+      <p class="status" id="loading-text" aria-live="polite">Abriendo la cámara…</p>
+      <p class="hint-small" id="loading-sub">Si el navegador lo pide, permite el acceso a la cámara y a los sensores de movimiento.</p>
+    </section>
+
+    <!-- AR overlay (camera running) -->
+    <section class="screen screen--ar" data-screen="ar" hidden>
+      <div class="ar-top">
+        <p class="ar-badge"><svg aria-hidden="true"><use href="#emblem"/></svg><span data-bind="guardian-name">El Mohán</span></p>
+        <button class="btn btn--ghost" id="btn-reset" type="button" aria-label="Reiniciar la escena">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.4-5.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M4 4v4.5h4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>Reiniciar</span>
+        </button>
+      </div>
+
+      <div class="coach" id="coach" aria-live="polite">
+        <div class="coach__icon coach__icon--scan" aria-hidden="true">
+          <svg viewBox="0 0 64 64">
+            <ellipse cx="32" cy="52" rx="26" ry="7" fill="none" stroke="var(--moss-light)" stroke-width="1.5" stroke-dasharray="3 4"/>
+            <g class="coach__phone">
+              <rect x="22" y="8" width="20" height="34" rx="4" fill="none" stroke="currentColor" stroke-width="2.2"/>
+              <circle cx="32" cy="37" r="1.6" fill="currentColor"/>
+            </g>
+          </svg>
+        </div>
+        <div class="coach__icon coach__icon--tap" aria-hidden="true" hidden>
+          <svg viewBox="0 0 64 64">
+            <ellipse cx="32" cy="44" rx="24" ry="8" fill="none" stroke="var(--moss)" stroke-width="1.5" stroke-dasharray="3 4"/>
+            <ellipse class="coach__ripple" cx="32" cy="44" rx="14" ry="4.6" fill="none" stroke="var(--moss-light)" stroke-width="2"/>
+            <path d="M32 44 L28.5 36 L32 20 L35.5 36 Z" fill="var(--gold)" opacity=".9"/>
+            <circle cx="32" cy="44" r="2.2" fill="var(--gold-light)"/>
+          </svg>
+        </div>
+        <p class="coach__text" id="coach-text">Mueve el celular despacio para detectar la superficie</p>
+      </div>
+
+      <p class="gesture-tip" id="gesture-tip" hidden>Arrastra con un dedo para girarlo · pellizca para cambiar su tamaño · toca otro punto para moverlo</p>
+
+      <footer class="credits credits--mini">
+        Motor AR: 8th Wall, de Niantic Spatial — <a href="vendor/8thwall/LICENSE" target="_blank" rel="noopener">licencia</a> (© 2026 Niantic Spatial, sin garantías) · three.js (MIT)
+      </footer>
+    </section>
+
+    <!-- Error / notice screen (content filled by app.js) -->
+    <section class="screen screen--center" data-screen="error" hidden role="alert">
+      <div class="notice">
+        <svg class="notice__icon" viewBox="0 0 64 64" aria-hidden="true">
+          <circle cx="32" cy="32" r="28" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M32 18 v18" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+          <circle cx="32" cy="45" r="2.4" fill="currentColor"/>
+        </svg>
+        <h2 class="notice__title" id="error-title">Algo salió mal</h2>
+        <p class="notice__body" id="error-body"></p>
+        <div class="notice__url" id="error-url" hidden>
+          <code id="error-url-text"></code>
+          <button class="btn btn--ghost" id="btn-copy" type="button">Copiar enlace</button>
+        </div>
+        <button class="btn btn--primary" id="btn-retry" type="button" hidden>Reintentar</button>
+      </div>
+      <footer class="credits credits--mini credits--static">
+        Motor AR: 8th Wall, de Niantic Spatial — <a href="vendor/8thwall/LICENSE" target="_blank" rel="noopener">licencia</a> (© 2026 Niantic Spatial, sin garantías) · three.js (MIT)
+      </footer>
+    </section>
+  </main>
+
+  <noscript>
+    <p class="noscript">Esta experiencia necesita JavaScript activado.</p>
+  </noscript>
+  <script>
+    // If the app module never boots (e.g. a vendor file failed to load), say so instead of hanging.
+    setTimeout(function () {
+      if (window.__appBooted) return;
+      var s = document.getElementById('start-status');
+      var b = document.getElementById('btn-start');
+      var start = document.querySelector('[data-screen="start"]');
+      if (start) start.hidden = false;
+      if (b) b.querySelector('.btn__label').textContent = 'No disponible';
+      if (s) s.textContent = 'No se pudo cargar la experiencia. Revisa tu conexión y recarga la página.';
+    }, 15000);
+  </script>
+</body>
+</html>
