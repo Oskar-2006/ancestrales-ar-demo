@@ -1,5 +1,6 @@
-// Ancestrales AR — the guardian appears on its printed card (8th Wall image target) and stays
-// anchored in the room (8th Wall world tracking / SLAM), rendered with three.js.
+// Ancestrales AR — the guardian appears on its printed QR code (8th Wall image target) and stays
+// anchored in the room (8th Wall world tracking / SLAM), rendered with three.js. A floating lore
+// panel beside it (a billboard in the scene) opens an on-screen reader.
 //
 // Wiring overview:
 //   1. three.js is loaded as ES modules (import map in index.html). XR8.Threejs expects a
@@ -16,9 +17,11 @@
 //        app module         ours: scene content, image target events, gestures, UI state
 //   4. With SLAM on, image target poses arrive in the same world space as the camera. The first
 //      'reality.imagefound' turns the target pose into a world anchor and the guardian appears
-//      there. While a target stays in view ('imageupdated') the anchor is refined; when the user
-//      points at the card again somewhere else, the guardian glides to the new spot.
+//      there. While the target stays in view ('imageupdated') the anchor is refined; when the user
+//      points at the QR again somewhere else, the guardian glides to the new spot.
 //      'imagelost' does not touch the guardian: SLAM keeps it fixed while the user walks around.
+//   5. ?preview=1 skips XR8 and the camera: the same scene is rendered by a plain three.js
+//      renderer with a fixed camera, and a synthetic target pose feeds the same anchoring code.
 
 import * as THREE_NS from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -43,7 +46,7 @@ const CAMERA_START_HEIGHT = 1.5;
 // Anchor refinement: exponential approach to the latest target pose. 20/s is a ~50 ms time
 // constant: it removes frame-to-frame jitter without a visible lag.
 const SMOOTHING_RATE = 20;
-// Re-anchoring: when the card is seen far from where the guardian stands (it was moved, or SLAM
+// Re-anchoring: when the QR is seen far from where the guardian stands (it was moved, or SLAM
 // drifted), the guardian glides there with a slower ~200 ms time constant instead of jumping.
 const GLIDE_RATE = 5;
 const REANCHOR_DISTANCE = 0.35; // in figure heights
@@ -57,20 +60,33 @@ const UPRIGHT_EXIT_DEG = 42;
 // In upright mode the feet stand slightly in front of the target plane so the figure does not
 // sink into a wall (in figure heights).
 const UPRIGHT_FRONT_OFFSET = 0.15;
-// First anchor: a lower-priority target (the bare QR) waits this long in case the full card is
-// recognised a moment later, so the guardian does not appear on the QR and then slide away.
-const FIRST_ANCHOR_WAIT_MS = 250;
 // After "Reiniciar", ignore detections for a moment so the vanish is visible before re-anchoring.
 const RESET_COOLDOWN_MS = 700;
-// Once anchored, a lower-priority target (the bare QR) may not move the anchor while the full card
-// was seen this recently: pulling the card out of view often leaves only its QR in frame for a
-// moment, and the guardian should not slide onto it.
-const HIGHER_PRIORITY_GRACE_MS = 1500;
 // SLAM "LIMITED" for this long (after anchoring) shows the "move slowly" hint.
 const LIMITED_HINT_DELAY_MS = 1500;
 const ANCHOR_TOAST_MS = 3800;
 const APPEAR_MS = 700;
 const DISAPPEAR_MS = 300;
+
+// Lore panel: a 3D billboard to the camera's right of the guardian. Sizes are in figure heights
+// (the guardian is scaled from the QR width, so the panel follows the QR size and the pinch).
+const PANEL_CANVAS_WIDTH = 1024; // fixed texture resolution, whatever the screen's pixel ratio
+const PANEL_WIDTH_IN_HEIGHTS = 1.1;
+const PANEL_SIDE_GAP = 0.3; // from the figure's axis to the panel's near edge
+const PANEL_CENTER_Y = 0.55; // panel centre above the feet: about the chest
+const PANEL_FADE_MS = 400;
+const BUTTON_HIT_PAD = 40; // extra canvas pixels above and below the button row that still count
+// A tap: finger down and up within this distance and time.
+const TAP_MAX_PX = 10;
+const TAP_MAX_MS = 350;
+const READER_FADE_MS = 240;
+// Same system font stacks as css/style.css (no font files).
+const FONT_DISPLAY = '"Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif';
+const FONT_BODY = 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+
+// Preview mode (?preview=1): where the fixed camera looks, and the fake QR pose it stands on.
+const PREVIEW_FOV = 40;
+const PREVIEW_QR_SCALE = 0.4; // fake target height in world units (width = 0.75 of it) -> a 0.9 tall figure (3 x its width)
 
 const AXIS_X = new THREE_NS.Vector3(1, 0, 0);
 const AXIS_Y = new THREE_NS.Vector3(0, 1, 0);
@@ -84,6 +100,7 @@ const $ = (sel) => document.querySelector(sel);
 const screens = Array.from(document.querySelectorAll('[data-screen]'));
 
 function showScreen(name) {
+  if (name !== 'ar') closeReader(true); // never leave the reader (and an inert background) under another screen
   screens.forEach((el) => { el.hidden = el.dataset.screen !== name; });
   document.body.classList.toggle('is-ar', name === 'ar');
 }
@@ -134,6 +151,7 @@ const reload = () => window.location.reload();
 // ---------------------------------------------------------------------------
 
 const params = new URLSearchParams(window.location.search);
+const previewMode = params.get('preview') === '1';
 const requestedKey = (params.get('guardian') || DEFAULT_GUARDIAN).trim().toLowerCase();
 const guardian = Object.prototype.hasOwnProperty.call(GUARDIANS, requestedKey) ? GUARDIANS[requestedKey] : null;
 
@@ -164,8 +182,8 @@ function showDesktopNotice() {
   showError({
     title: 'Ábrelo en tu celular',
     paragraphs: [
-      `Esta experiencia usa la cámara trasera y los sensores de movimiento de un celular para encontrar la tarjeta de ${guardian ? guardian.name : 'tu guardián'}.`,
-      'Escanea el código QR de la tarjeta o abre este enlace en el teléfono:',
+      `Esta experiencia usa la cámara trasera y los sensores de movimiento de un celular para encontrar el código QR de ${guardian ? guardian.name : 'tu guardián'}.`,
+      'Escanea su código QR con el teléfono o abre este enlace en él:',
     ],
     url: window.location.href,
   });
@@ -239,13 +257,12 @@ function loadTargetData() {
 }
 
 const targetConfig = (name) => guardian.targets.find((t) => t.name === name) || null;
-const maxTargetPriority = () => Math.max(...guardian.targets.map((t) => t.priority));
 
 function showTargetLoadError(err) {
   console.error('[ancestrales] image target failed to load', err);
   showError({
-    title: 'No se pudo preparar la tarjeta',
-    paragraphs: ['Faltan los datos para reconocer la tarjeta. Revisa tu conexión y vuelve a intentarlo.'],
+    title: 'No se pudo preparar el código QR',
+    paragraphs: ['Faltan los datos para reconocer el código QR. Revisa tu conexión y vuelve a intentarlo.'],
     action: { label: 'Reintentar', onClick: reload },
   });
 }
@@ -295,6 +312,7 @@ const easeOutBack = (t) => {
   return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
 };
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 const tweens = new Set();
 function tween(durationMs, onStep, ease = easeOutCubic, onDone = null) {
@@ -337,8 +355,7 @@ const state = {
   mixer: null,
   // Every target currently in view: name -> latest event detail.
   detections: new Map(),
-  // The target that refines the anchor: the highest priority in view; at equal priority the
-  // current one stays.
+  // The target in view that refines the anchor (the current one stays while it is in view).
   driverName: null,
   anchored: false,
   // Where the guardian should stand, from the latest pose of the driving target (world space).
@@ -349,15 +366,14 @@ const state = {
     upright: false,
   },
   gliding: false,
-  firstSeenAt: 0,
-  topPrioritySeenAt: 0, // last time a highest-priority target (the card) was in view
-  firstAnchorTimer: 0,
   resetUntil: 0,
   resetTimer: 0,
   appear: 0, // 0..1 scale factor of the appear/disappear animation
   appearTween: null,
   userScale: 1,
   userRotation: 0,
+  panel: null, // lore panel: {mesh, canvas, ctx, texture, layout, aspect, pressed, appear, ...}
+  readerOpen: false,
   gestureTipShown: false,
   tracking: { status: null, reason: null, limitedSince: 0, hintVisible: false },
   lastFrame: performance.now(),
@@ -373,6 +389,11 @@ const tmp = {
   front: new THREE.Vector3(),
   side: new THREE.Vector3(),
   down: new THREE.Vector3(),
+  panelRight: new THREE.Vector3(),
+  panelPos: new THREE.Vector3(),
+  camPos: new THREE.Vector3(),
+  edgeA: new THREE.Vector3(),
+  edgeB: new THREE.Vector3(),
   m: new THREE.Matrix4(),
   scale: new THREE.Vector3(),
 };
@@ -423,7 +444,7 @@ function buildGuardian() {
   anchor.visible = false;
 
   // Key light lives in the anchor's frame: light comes from above and in front of the figure,
-  // whatever the angle of the card it stands on.
+  // whatever the angle of the QR it stands on.
   const key = new THREE.DirectionalLight(0xfff0d2, 2.2);
   key.position.set(0.8, 2, 1.4);
   anchor.add(key);
@@ -523,13 +544,16 @@ function updateSpiritLight() {
 // ---------------------------------------------------------------------------
 
 function initScene() {
-  const { scene, camera, renderer } = state.xr;
+  const { scene, renderer } = state.xr;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
 
   const hemi = new THREE.HemisphereLight(0xe8eedc, 0x2b3325, 1.6);
   scene.add(hemi);
+}
 
-  // Start the camera at a known height so the responsive SLAM scale is predictable.
+/** AR only: start the camera at a known height so the responsive SLAM scale is predictable. */
+function placeStartCamera() {
+  const { camera } = state.xr;
   camera.position.set(0, CAMERA_START_HEIGHT, 0);
   window.XR8.XrController.updateCameraProjectionMatrix({
     origin: camera.position,
@@ -538,7 +562,10 @@ function initScene() {
 }
 
 function ensureGuardian() {
-  if (!state.anchor && state.modelTemplate && state.xr) state.xr.scene.add(buildGuardian());
+  if (!state.anchor && state.modelTemplate && state.xr) {
+    state.xr.scene.add(buildGuardian());
+    buildLorePanel();
+  }
   return state.anchor;
 }
 
@@ -568,7 +595,7 @@ function computeStandPose(detail, cfg, wasUpright, out) {
   const u = tmp.u.copy(AXIS_Y).applyQuaternion(tmp.quat);
   const r = tmp.r.copy(AXIS_X).applyQuaternion(tmp.quat);
 
-  out.size = width * cfg.heightOnCard;
+  out.size = width * cfg.heightOnTarget;
 
   // Elevation of the normal above the horizon: 90° = face up on a table, 0° = on a wall.
   const elevation = THREE.MathUtils.radToDeg(Math.asin(clamp(n.y, -1, 1)));
@@ -616,7 +643,7 @@ function snapAnchorToGoal() {
   applyStandMode();
 }
 
-/** Flat on a surface: full contact shadow. Upright at a card's edge: lighter, it has no floor. */
+/** Flat on a surface: full contact shadow. Upright at a target's edge: lighter, it has no floor. */
 function applyStandMode() {
   if (state.shadow) state.shadow.material.opacity = state.goal.upright ? 0.45 : 1;
 }
@@ -662,12 +689,16 @@ function spawnGuardian() {
   });
   setPhase('anchored');
   showAnchoredToast();
+  scheduleLorePanel();
   console.info('[ancestrales] guardian anchored at', state.goal.position.toArray().map((v) => v.toFixed(3)).join(', '),
     state.goal.upright ? '(upright)' : '(on the target plane)');
 }
 
 function vanishGuardian() {
-  if (!state.anchor || !state.anchor.visible) return;
+  if (!state.anchor || !state.anchor.visible) {
+    resetUserTransform();
+    return;
+  }
   const from = state.appear;
   cancelTween(state.appearTween);
   state.appearTween = tween(DISAPPEAR_MS, (e) => {
@@ -676,18 +707,23 @@ function vanishGuardian() {
   }, easeInCubic, () => {
     state.anchor.visible = false;
     state.appearTween = null;
+    if (state.panel) state.panel.mesh.visible = false;
+    resetUserTransform();
   });
+  hideLorePanel();
 }
 
-/** Picks which target in view refines the anchor: highest priority; ties keep the current one. */
+/** The user's rotation and pinch size start over for the next appearance (after the vanish has played). */
+function resetUserTransform() {
+  state.userScale = 1;
+  state.userRotation = 0;
+  applyUserRotation();
+}
+
+/** Picks which target in view refines the anchor: the current one while it is in view, else any. */
 function pickDriver() {
-  let best = null;
-  state.detections.forEach((_, name) => {
-    const cfg = targetConfig(name);
-    if (!best || cfg.priority > targetConfig(best).priority
-        || (cfg.priority === targetConfig(best).priority && name === state.driverName)) best = name;
-  });
-  return best;
+  if (state.driverName && state.detections.has(state.driverName)) return state.driverName;
+  return state.detections.keys().next().value || null;
 }
 
 /** Feeds the latest detections into the anchor (first anchor, refinement or re-anchoring). */
@@ -701,30 +737,14 @@ function updateFromDetections() {
     console.info('[ancestrales] anchor driven by target:', name);
   }
   const cfg = targetConfig(name);
-  if (cfg.priority >= maxTargetPriority()) state.topPrioritySeenAt = performance.now();
 
   if (!state.anchored) {
-    // Card priority for the first anchor: a lower-priority target waits a moment for the card.
-    if (cfg.priority < maxTargetPriority()) {
-      const now = performance.now();
-      if (!state.firstSeenAt) state.firstSeenAt = now;
-      const wait = FIRST_ANCHOR_WAIT_MS - (now - state.firstSeenAt);
-      if (wait > 0) {
-        if (!state.firstAnchorTimer) {
-          state.firstAnchorTimer = setTimeout(() => { state.firstAnchorTimer = 0; updateFromDetections(); }, wait + 10);
-        }
-        return;
-      }
-    }
     computeStandPose(state.detections.get(name), cfg, false, state.goal);
     state.anchored = true;
-    state.firstSeenAt = 0;
     spawnGuardian();
     return;
   }
 
-  if (cfg.priority < maxTargetPriority()
-      && performance.now() - state.topPrioritySeenAt < HIGHER_PRIORITY_GRACE_MS) return;
   computeStandPose(state.detections.get(name), cfg, state.goal.upright, state.goal);
   if (state.anchor && state.anchor.visible) applyStandMode();
 }
@@ -746,10 +766,8 @@ function onImageLost({ detail }) {
   if (!detail || !targetConfig(detail.name)) return;
   // The guardian stays where it is: SLAM keeps its world pose fixed while the user moves around.
   console.info('[ancestrales] image lost:', detail.name, state.anchored ? '(guardian stays anchored)' : '');
-  if (targetConfig(detail.name).priority >= maxTargetPriority()) state.topPrioritySeenAt = performance.now();
   state.detections.delete(detail.name);
   if (detail.name === state.driverName) state.driverName = null;
-  if (!state.detections.size) state.firstSeenAt = 0;
 }
 
 function onTrackingStatus({ detail }) {
@@ -772,7 +790,429 @@ function updateTrackingHint(now) {
 }
 
 // ---------------------------------------------------------------------------
-// Gestures: one finger rotates about the guardian's up axis, two fingers scale.
+// Lore panel: canvas texture on a plane in the scene, a billboard beside the guardian
+// ---------------------------------------------------------------------------
+
+const PANEL_STYLE = {
+  pad: 48,
+  radius: 44,
+  titleSize: 88,
+  subtitleSize: 48,
+  bodySize: 38,
+  bodyLine: 50,
+  paragraphGap: 14,
+  buttonW: 600,
+  buttonH: 96,
+};
+
+/** Splits `text` into lines no wider than `maxWidth` using the font currently set on `ctx`. */
+function wrapText(ctx, text, maxWidth) {
+  const lines = [];
+  let line = '';
+  text.split(/\s+/).filter(Boolean).forEach((word) => {
+    const candidate = line ? `${line} ${word}` : word;
+    if (line && ctx.measureText(candidate).width > maxWidth) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = candidate;
+    }
+  });
+  if (line) lines.push(line);
+  return lines;
+}
+
+/** Rounded rectangle path with arcTo (ctx.roundRect is missing in Safari 15). */
+function roundedRectPath(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+/** Measures and wraps the lore text; returns the baseline of every line, the button box and the canvas height. */
+function layoutLorePanel(ctx, lore) {
+  const S = PANEL_STYLE;
+  const inner = PANEL_CANVAS_WIDTH - S.pad * 2;
+  let y = S.pad;
+  const place = (lines, lineHeight) => lines.map((text) => {
+    const placed = { text, y: y + lineHeight * 0.78 };
+    y += lineHeight;
+    return placed;
+  });
+
+  ctx.font = `600 ${S.titleSize}px ${FONT_DISPLAY}`;
+  const title = place(wrapText(ctx, lore.title, inner), S.titleSize * 1.08);
+  y += 4;
+  ctx.font = `italic 400 ${S.subtitleSize}px ${FONT_DISPLAY}`;
+  const subtitle = place(wrapText(ctx, lore.subtitle, inner), S.subtitleSize * 1.2);
+  y += 16;
+  const rule = y;
+  y += 32;
+  ctx.font = `400 ${S.bodySize}px ${FONT_BODY}`;
+  const paragraphs = lore.paragraphs.map((text) => {
+    const lines = place(wrapText(ctx, text, inner), S.bodyLine);
+    y += S.paragraphGap;
+    return lines;
+  });
+  y += 10;
+  const button = { x: (PANEL_CANVAS_WIDTH - S.buttonW) / 2, y, w: S.buttonW, h: S.buttonH };
+  y += S.buttonH + S.pad;
+  return { title, subtitle, rule, paragraphs, button, height: Math.ceil(y) };
+}
+
+/** Draws the whole panel; called once and again whenever the button is pressed or released. */
+function drawLorePanel(p) {
+  const { ctx, layout } = p;
+  const S = PANEL_STYLE;
+  const W = PANEL_CANVAS_WIDTH;
+  const Ht = layout.height;
+  ctx.clearRect(0, 0, W, Ht);
+
+  // Dark stone panel with a thin gold border and a fainter inner line.
+  roundedRectPath(ctx, 4, 4, W - 8, Ht - 8, S.radius);
+  const bg = ctx.createLinearGradient(0, 0, 0, Ht);
+  bg.addColorStop(0, 'rgba(31, 38, 29, 0.92)');
+  bg.addColorStop(1, 'rgba(14, 17, 13, 0.92)');
+  ctx.fillStyle = bg;
+  ctx.fill();
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = 'rgba(201, 162, 39, 0.9)';
+  ctx.stroke();
+  roundedRectPath(ctx, 20, 20, W - 40, Ht - 40, S.radius - 14);
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(143, 191, 106, 0.28)';
+  ctx.stroke();
+
+  ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'center';
+  ctx.font = `600 ${S.titleSize}px ${FONT_DISPLAY}`;
+  ctx.fillStyle = '#e2c35a';
+  ctx.shadowColor = 'rgba(143, 191, 106, 0.35)';
+  ctx.shadowBlur = 18;
+  layout.title.forEach((l) => ctx.fillText(l.text, W / 2, l.y));
+  ctx.shadowBlur = 0;
+  ctx.font = `italic 400 ${S.subtitleSize}px ${FONT_DISPLAY}`;
+  ctx.fillStyle = '#8fbf6a';
+  layout.subtitle.forEach((l) => ctx.fillText(l.text, W / 2, l.y));
+
+  // Rule with a small diamond, like the emblem.
+  const rg = ctx.createLinearGradient(S.pad, 0, W - S.pad, 0);
+  rg.addColorStop(0, 'rgba(201, 162, 39, 0)');
+  rg.addColorStop(0.5, 'rgba(226, 195, 90, 0.9)');
+  rg.addColorStop(1, 'rgba(201, 162, 39, 0)');
+  ctx.fillStyle = rg;
+  ctx.fillRect(S.pad, layout.rule - 1.5, W - S.pad * 2, 3);
+  ctx.fillStyle = '#e2c35a';
+  ctx.beginPath();
+  ctx.moveTo(W / 2, layout.rule - 10);
+  ctx.lineTo(W / 2 + 8, layout.rule);
+  ctx.lineTo(W / 2, layout.rule + 10);
+  ctx.lineTo(W / 2 - 8, layout.rule);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.textAlign = 'left';
+  ctx.font = `400 ${S.bodySize}px ${FONT_BODY}`;
+  ctx.fillStyle = '#ece6d6';
+  layout.paragraphs.forEach((lines) => lines.forEach((l) => ctx.fillText(l.text, S.pad, l.y)));
+
+  // Button: gold pill; pressed = lighter, sunk a few pixels, stronger glow.
+  const b = layout.button;
+  const dy = p.pressed ? 4 : 0;
+  roundedRectPath(ctx, b.x, b.y + dy, b.w, b.h, b.h / 2);
+  if (p.pressed) {
+    ctx.fillStyle = '#f6e7a8';
+  } else {
+    const gg = ctx.createLinearGradient(0, b.y, 0, b.y + b.h);
+    gg.addColorStop(0, '#e2c35a');
+    gg.addColorStop(1, '#c9a227');
+    ctx.fillStyle = gg;
+  }
+  ctx.shadowColor = p.pressed ? 'rgba(246, 231, 168, 0.95)' : 'rgba(143, 191, 106, 0.4)';
+  ctx.shadowBlur = p.pressed ? 40 : 22;
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = 'rgba(255, 238, 180, 0.55)';
+  ctx.stroke();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `700 42px ${FONT_BODY}`;
+  ctx.fillStyle = '#10140e';
+  ctx.fillText('Leer en pantalla', W / 2, b.y + dy + b.h / 2 + 2);
+
+  p.texture.needsUpdate = true;
+}
+
+function buildLorePanel() {
+  const lore = guardian.lore;
+  if (!lore || state.panel) return;
+  const { scene, renderer } = state.xr;
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  const layout = layoutLorePanel(ctx, lore);
+  canvas.width = PANEL_CANVAS_WIDTH; // resizing resets the context: everything is drawn after this
+  canvas.height = layout.height;
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = renderer.capabilities.getMaxAnisotropy(); // mipmaps are on by default
+
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(1, 1),
+    new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false, toneMapped: false, opacity: 0 }),
+  );
+  mesh.name = 'lore-panel';
+  mesh.visible = false;
+  mesh.frustumCulled = false;
+  mesh.renderOrder = 10; // after the guardian, its shadow and its ring
+  scene.add(mesh);
+
+  state.panel = {
+    mesh, canvas, ctx, texture, layout,
+    aspect: layout.height / PANEL_CANVAS_WIDTH, // height / width of the plane
+    pressed: false,
+    appear: 0, // 0..1: opacity and a slight scale
+    hiding: false, // true from hideLorePanel until the next showLorePanel: not tappable
+    tween: null,
+    timer: 0,
+    lastRight: new THREE.Vector3(1, 0, 0),
+  };
+  drawLorePanel(state.panel);
+}
+
+function setPanelAppear(value) {
+  state.panel.appear = value; // opacity is applied each frame by updateLorePanel
+}
+
+/** The panel comes in after the guardian's entrance has played. */
+function scheduleLorePanel() {
+  const p = state.panel;
+  if (!p) return;
+  clearTimeout(p.timer);
+  p.timer = setTimeout(showLorePanel, APPEAR_MS);
+}
+
+function showLorePanel() {
+  const p = state.panel;
+  if (!p || !state.anchor || !state.anchor.visible) return;
+  cancelTween(p.tween);
+  p.hiding = false;
+  p.mesh.visible = true;
+  $('#btn-read').hidden = false;
+  setPanelAppear(0);
+  updateLorePanel();
+  if (reducedMotion()) {
+    setPanelAppear(1);
+    return;
+  }
+  p.tween = tween(PANEL_FADE_MS, setPanelAppear, easeOutCubic);
+}
+
+function hideLorePanel() {
+  const p = state.panel;
+  if (!p) return;
+  clearTimeout(p.timer);
+  cancelTween(p.tween);
+  p.hiding = true;
+  $('#btn-read').hidden = true;
+  setPanelPressed(false);
+  if (!p.mesh.visible) return;
+  if (reducedMotion()) {
+    setPanelAppear(0);
+    p.mesh.visible = false;
+    return;
+  }
+  const from = p.appear;
+  p.tween = tween(DISAPPEAR_MS, (e) => setPanelAppear(from * (1 - e)), easeInCubic, () => { p.mesh.visible = false; });
+}
+
+function setPanelPressed(pressed) {
+  const p = state.panel;
+  if (!p || p.pressed === pressed) return;
+  p.pressed = pressed;
+  drawLorePanel(p);
+}
+
+/**
+ * Every frame: put the panel beside the guardian, on the camera's right side, and turn it to
+ * face the camera around world up only (it stays upright, so the text never tilts).
+ */
+function updateLorePanel() {
+  const p = state.panel;
+  if (!p || !p.mesh.visible) return;
+  const { camera } = state.xr;
+  camera.updateMatrixWorld();
+  // Figure height in world units; pinching down does not shrink the panel below its base size.
+  const height = state.anchor.scale.x * Math.max(1, state.userScale);
+  const width = height * PANEL_WIDTH_IN_HEIGHTS;
+  const panelHeight = width * p.aspect;
+
+  const right = tmp.panelRight.setFromMatrixColumn(camera.matrixWorld, 0);
+  right.y = 0;
+  if (right.lengthSq() > 1e-6) p.lastRight.copy(right.normalize());
+  else right.copy(p.lastRight); // camera pointing straight up or down: keep the last side
+
+  const pos = tmp.panelPos.copy(state.anchor.position)
+    .addScaledVector(right, height * PANEL_SIDE_GAP + width / 2)
+    .addScaledVector(AXIS_Y, Math.max(height * PANEL_CENTER_Y, panelHeight / 2)); // never below the floor
+  const cam = tmp.camPos.setFromMatrixPosition(camera.matrixWorld);
+
+  // Camera right up against the panel: fade it out and stop turning (the yaw is unstable there).
+  const near = Math.hypot(cam.x - pos.x, cam.z - pos.z);
+  const fade = clamp(near / (0.6 * width), 0, 1);
+  const grow = 0.9 + 0.1 * p.appear;
+  p.mesh.position.copy(pos);
+  if (near > 1e-4 && fade >= 1) p.mesh.rotation.set(0, Math.atan2(cam.x - pos.x, cam.z - pos.z), 0);
+  p.mesh.scale.set(width * grow, panelHeight * grow, 1);
+  p.mesh.material.opacity = p.appear * fade;
+}
+
+const raycaster = new THREE.Raycaster();
+const pointerNdc = new THREE.Vector2();
+
+/**
+ * Raycasts a screen point against the panel. Returns null on a miss, else {onButton}: the hit's
+ * uv is turned into canvas pixels and compared with the button row (full width, plus padding).
+ */
+function pickLorePanel(clientX, clientY) {
+  const p = state.panel;
+  if (!p || !p.mesh.visible || p.hiding || p.mesh.material.opacity < 0.6 || state.readerOpen) return null;
+  const { camera } = state.xr;
+  const rect = $('#ar-canvas').getBoundingClientRect();
+  if (!rect.width || !rect.height) return null;
+  pointerNdc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+  camera.updateMatrixWorld();
+  // XR8 writes the projection matrix directly; make sure its inverse (used by the raycaster) matches.
+  camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+  p.mesh.updateMatrixWorld();
+  raycaster.setFromCamera(pointerNdc, camera);
+  const hit = raycaster.intersectObject(p.mesh, false)[0];
+  if (!hit || !hit.uv) return null;
+  // CSS pixels per canvas pixel, from the panel's left and right edge midpoints on screen: the
+  // button row gets at least ~24 CSS px of padding however small the panel looks.
+  const edgePx = (x0, y0, x1, y1, canvasSize) => {
+    const from = p.mesh.localToWorld(tmp.edgeA.set(x0, y0, 0)).project(camera);
+    const to = p.mesh.localToWorld(tmp.edgeB.set(x1, y1, 0)).project(camera);
+    const v = Math.hypot((to.x - from.x) * rect.width / 2, (to.y - from.y) * rect.height / 2) / canvasSize;
+    return Number.isFinite(v) && v > 1e-4 ? v : 1e-4; // never NaN/0: worst case the whole panel is the button
+  };
+  const pxPerCanvas = Math.min(
+    edgePx(-0.5, 0, 0.5, 0, p.canvas.width),
+    edgePx(0, -0.5, 0, 0.5, p.canvas.height),
+  );
+  const pad = Math.max(BUTTON_HIT_PAD, 24 / pxPerCanvas);
+  const ch = p.canvas.height;
+  const b = p.layout.button;
+  const top = b.y - pad;
+  const bottom = b.y + b.h + pad;
+  const y = (1 - hit.uv.y) * ch;
+  // A band that covers most of a tiny panel means any hit on it is a hit on the button.
+  const bandCoversMost = Math.min(bottom, ch) - Math.max(top, 0) > 0.6 * ch;
+  return { onButton: bandCoversMost || (y >= top && y <= bottom) };
+}
+
+// ---------------------------------------------------------------------------
+// On-screen reader (DOM dialog fed from the same lore data)
+// ---------------------------------------------------------------------------
+
+let readerTimer = 0;
+let readerReturnFocus = null;
+let readerOpenedAt = 0;
+
+function fillReader(lore) {
+  $('#reader-title').textContent = lore.title;
+  $('#reader-subtitle').textContent = lore.subtitle;
+  $('#reader-body').replaceChildren(...lore.paragraphs.map((text) => el('p', text)));
+}
+
+/** `opener` is the element to give focus back to on close (default: whatever had focus). */
+function openReader(opener) {
+  if (state.readerOpen || !guardian.lore) return;
+  const root = $('#reader');
+  state.readerOpen = true;
+  // Drop any gesture in progress: from now on the overlay takes all touches.
+  pointers.clear();
+  gesture = null;
+  setPanelPressed(false);
+  readerReturnFocus = opener || document.activeElement;
+  setBackgroundInert(true);
+  readerOpenedAt = performance.now();
+  clearTimeout(readerTimer);
+  root.hidden = false;
+  $('#reader-body').scrollTop = 0;
+  void root.offsetWidth; // commit the display change so the fade-in runs
+  root.classList.add('is-open');
+  $('#reader-close').focus({ preventScroll: true });
+}
+
+/** While the reader is open the AR screens and canvas are out of reach of keyboard and screen readers. */
+function setBackgroundInert(on) {
+  document.querySelectorAll('[data-screen], #ar-canvas').forEach((node) => {
+    node.toggleAttribute('inert', on);
+    if (on) node.setAttribute('aria-hidden', 'true');
+    else node.removeAttribute('aria-hidden');
+  });
+}
+
+function closeReader(immediate = false) {
+  if (!state.readerOpen) return;
+  clearTimeout(readerTimer);
+  state.readerOpen = false;
+  setBackgroundInert(false);
+  const root = $('#reader');
+  root.classList.remove('is-open');
+  if (immediate || reducedMotion()) {
+    root.hidden = true;
+  } else {
+    readerTimer = setTimeout(() => { root.hidden = true; }, READER_FADE_MS + 20);
+  }
+  const back = readerReturnFocus;
+  readerReturnFocus = null;
+  if (back && back !== document.body && document.contains(back) && typeof back.focus === 'function') {
+    back.focus({ preventScroll: true });
+  } else {
+    $('#reader-close').blur();
+  }
+}
+
+function bindReader() {
+  $('#reader-close').addEventListener('click', () => closeReader());
+  // Tapping the backdrop closes. The first moments are ignored so the tap that opened the
+  // reader cannot close it through a late synthetic click.
+  $('#reader').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget && performance.now() - readerOpenedAt > 400) closeReader();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (!state.readerOpen) return;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeReader();
+    } else if (e.key === 'Tab') {
+      // Keep keyboard focus inside the dialog: scrollable text and the close button.
+      const items = [$('#reader-body'), $('#reader-close')];
+      const i = items.indexOf(document.activeElement);
+      if (i === -1) {
+        e.preventDefault();
+        items[1].focus();
+      } else if (e.shiftKey && i === 0) {
+        e.preventDefault();
+        items[1].focus();
+      } else if (!e.shiftKey && i === items.length - 1) {
+        e.preventDefault();
+        items[0].focus();
+      }
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Gestures: one finger rotates about the guardian's up axis, two fingers scale, a tap on the
+// lore panel's button opens the reader (a tap never rotates or scales).
 // ---------------------------------------------------------------------------
 
 const pointers = new Map();
@@ -788,14 +1228,22 @@ function applyUserRotation() {
 }
 
 function onPointerDown(e) {
-  if (!document.body.classList.contains('is-ar')) return;
+  if (!document.body.classList.contains('is-ar') || state.readerOpen) return;
   e.preventDefault();
   try { e.target.setPointerCapture(e.pointerId); } catch (_) { /* not all targets support capture */ }
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
   if (pointers.size === 1) {
-    gesture = { type: 'pending', startX: e.clientX, startRot: state.userRotation, startY: e.clientY };
+    // A touch that lands on the lore panel waits for a full TAP_MAX_PX of movement before it
+    // turns into a rotation, so a tap on the panel (or its button) never rotates the guardian.
+    const hit = pickLorePanel(e.clientX, e.clientY);
+    gesture = {
+      type: 'pending', startX: e.clientX, startRot: state.userRotation, startY: e.clientY,
+      startTime: performance.now(), onPanel: !!hit, onButton: !!(hit && hit.onButton),
+    };
+    if (gesture.onButton) setPanelPressed(true);
   } else if (pointers.size === 2) {
+    setPanelPressed(false);
     gesture = { type: 'pinch', startDist: Math.max(pointerDistance(), 1), startScale: state.userScale };
   }
 }
@@ -812,7 +1260,10 @@ function onPointerMove(e) {
   if (pointers.size === 1 && (gesture.type === 'pending' || gesture.type === 'rotate')) {
     const dx = e.clientX - gesture.startX;
     const dy = e.clientY - gesture.startY;
-    if (gesture.type === 'pending' && Math.hypot(dx, dy) > DRAG_START_PX) gesture.type = 'rotate';
+    if (gesture.type === 'pending' && Math.hypot(dx, dy) > (gesture.onPanel ? TAP_MAX_PX : DRAG_START_PX)) {
+      gesture.type = 'rotate';
+      setPanelPressed(false);
+    }
     if (gesture.type === 'rotate') {
       state.userRotation = gesture.startRot + dx * ROTATE_RADIANS_PER_PX;
       applyUserRotation();
@@ -822,7 +1273,15 @@ function onPointerMove(e) {
 
 function onPointerUp(e) {
   if (!pointers.has(e.pointerId)) return;
+  // A tap on the panel's button: lifted (not cancelled) quickly, without having turned into a rotation.
+  const tapped = e.type === 'pointerup' && pointers.size === 1 && gesture && gesture.type === 'pending'
+    && gesture.onButton && performance.now() - gesture.startTime <= TAP_MAX_MS;
   pointers.delete(e.pointerId);
+  setPanelPressed(false);
+  if (tapped) {
+    const hit = pickLorePanel(e.clientX, e.clientY);
+    if (hit && hit.onButton) openReader();
+  }
   // After a pinch, ignore the remaining finger until everything is lifted (avoids a jump).
   if (pointers.size === 0) gesture = null;
   else if (gesture && gesture.type === 'pinch') gesture = { type: 'ignore' };
@@ -879,24 +1338,21 @@ function setPhase(phase) {
   document.body.dataset.phase = phase;
 }
 
-/** "Reiniciar": remove the guardian, forget the anchor and the user's rotation and size. */
+/** "Reiniciar": remove the guardian and its panel, forget the anchor and the user's rotation and size. */
 function resetScene() {
   if (state.phase !== 'searching' && state.phase !== 'anchored') return;
   state.anchored = false;
   state.driverName = null;
   state.gliding = false;
-  state.firstSeenAt = 0;
-  clearTimeout(state.firstAnchorTimer);
-  state.firstAnchorTimer = 0;
-  state.userScale = 1;
-  state.userRotation = 0;
-  applyUserRotation();
+  pointers.clear();
+  gesture = null;
   vanishGuardian();
+  closeReader(true);
   hideMessage($('#anchor-toast'));
   hideMessage($('#gesture-tip'));
   setPhase('searching');
-  // A card still in view re-anchors once the vanish has played (imageupdated keeps coming while
-  // it moves; the timer covers a card held perfectly still).
+  // A QR still in view re-anchors once the vanish has played (imageupdated keeps coming while
+  // it moves; the timer covers a QR held perfectly still).
   state.resetUntil = performance.now() + RESET_COOLDOWN_MS;
   clearTimeout(state.resetTimer);
   state.resetTimer = setTimeout(updateFromDetections, RESET_COOLDOWN_MS + 20);
@@ -931,12 +1387,47 @@ function canvasSizerModule(canvas) {
   };
 }
 
+/** Per-frame work shared by the AR pipeline and the preview loop. */
+function updateFrame() {
+  const now = performance.now();
+  const dt = Math.min((now - state.lastFrame) / 1000, 0.1);
+  state.lastFrame = now;
+
+  runTweens(now);
+  updateTrackingHint(now);
+  if (!state.anchor || !state.anchor.visible) return;
+
+  if (state.anchored) followGoal(dt);
+  updateSpiritLight();
+  if (state.mixer) state.mixer.update(dt);
+  updateLorePanel();
+
+  // Gentle breathing of the glow ring once the guardian is standing.
+  if (state.phase === 'anchored' && tweens.size === 0) {
+    state.ring.material.opacity = 0.28 + 0.1 * Math.sin(now / 900);
+  }
+}
+
+/** Calls spawnGuardian once the model is in, if the QR was already anchored while it downloaded. */
+function spawnWhenModelReady() {
+  loadModel().then(() => {
+    if (state.anchored && (!state.anchor || !state.anchor.visible)) spawnGuardian();
+  }).catch(showModelError);
+}
+
+function bindArControls(canvas) {
+  bindGestures(canvas);
+  $('#btn-reset').addEventListener('click', resetScene);
+  $('#btn-read').addEventListener('click', () => openReader($('#btn-read')));
+}
+
 function appModule() {
   return {
     name: 'ancestrales',
     onStart: () => {
       state.xr = window.XR8.Threejs.xrScene();
       initScene();
+      placeStartCamera();
       console.info('[ancestrales] XR8 pipeline started, three r' + THREE.REVISION);
     },
     onCameraStatusChange: ({ status, reason }) => {
@@ -948,32 +1439,12 @@ function appModule() {
       } else if (status === 'hasVideo') {
         showScreen('ar');
         setPhase('searching');
-        loadModel().then(() => {
-          // The card may have been anchored while the model was still downloading.
-          if (state.anchored && (!state.anchor || !state.anchor.visible)) spawnGuardian();
-        }).catch(showModelError);
+        spawnWhenModelReady();
       } else if (status === 'failed') {
         showPermissionDenied();
       }
     },
-    onUpdate: () => {
-      const now = performance.now();
-      const dt = Math.min((now - state.lastFrame) / 1000, 0.1);
-      state.lastFrame = now;
-
-      runTweens(now);
-      updateTrackingHint(now);
-      if (!state.anchor || !state.anchor.visible) return;
-
-      if (state.anchored) followGoal(dt);
-      updateSpiritLight();
-      if (state.mixer) state.mixer.update(dt);
-
-      // Gentle breathing of the glow ring once the guardian is standing.
-      if (state.phase === 'anchored' && tweens.size === 0) {
-        state.ring.material.opacity = 0.28 + 0.1 * Math.sin(now / 900);
-      }
-    },
+    onUpdate: updateFrame,
     onException: (err) => {
       console.error('[ancestrales] XR exception', err);
       if (err && err.type === 'permission') {
@@ -1073,15 +1544,14 @@ function startAR(XR8) {
   });
 
   const canvas = $('#ar-canvas');
-  bindGestures(canvas);
-  $('#btn-reset').addEventListener('click', resetScene);
+  bindArControls(canvas);
 
-  // World tracking (SLAM) together with image targets: the card only places the guardian; SLAM
-  // then keeps it fixed in the room even when the card leaves the view.
+  // World tracking (SLAM) together with image targets: the QR only places the guardian; SLAM
+  // then keeps it fixed in the room even when the QR leaves the view.
   // scale 'responsive' (the default) is the one that works with image targets in any space: units
   // follow CAMERA_START_HEIGHT and the target's pose/scale come in those same units. 'absolute'
   // (metric) needs an extra calibration walk and adds nothing here, since the guardian is sized
-  // from the card anyway.
+  // from the QR anyway.
   XR8.XrController.configure({
     disableWorldTracking: false,
     scale: 'responsive',
@@ -1111,13 +1581,90 @@ function startAR(XR8) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Preview mode (?preview=1): no XR8, no camera. The same scene on a dark gradient, a fixed camera
+// and a synthetic QR pose that goes through the normal anchoring code.
+// ---------------------------------------------------------------------------
+
+/** Sizes the renderer and places the fixed camera so the guardian and its panel are both in view. */
+function framePreviewCamera() {
+  const { camera, renderer } = state.xr;
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.fov = PREVIEW_FOV;
+  camera.updateProjectionMatrix();
+
+  // Figure plus panel span about 1.8 figure heights across: on a portrait phone that is ~50 % of
+  // the width; on a desktop window the height limit leaves room below for the "Leer historia" button.
+  // The look-at point sits below the pair's centre so the pair rides a little above the middle.
+  const figure = PREVIEW_QR_SCALE * 0.75 * guardian.targets[0].heightOnTarget;
+  const needW = 3.4 * figure;
+  const needH = 2.4 * figure;
+  const halfTan = Math.tan(THREE.MathUtils.degToRad(PREVIEW_FOV) / 2);
+  const dist = Math.max(needH / (2 * halfTan), needW / (2 * halfTan * camera.aspect));
+  const visibleH = 2 * dist * halfTan;
+  const target = new THREE.Vector3(0.5 * figure, 0.55 * figure - 0.1 * visibleH, 0);
+  camera.position.set(target.x - 0.25 * figure, target.y + 0.1 * dist, dist);
+  camera.lookAt(target);
+}
+
+/** The pose XR8 would report for a QR lying flat on the floor with its top edge away from the camera. */
+function previewDetection() {
+  const q = new THREE.Quaternion().setFromAxisAngle(AXIS_X, -Math.PI / 2);
+  return {
+    name: guardian.targets[0].name,
+    position: { x: 0, y: 0, z: 0 },
+    rotation: { x: q.x, y: q.y, z: q.z, w: q.w },
+    scale: PREVIEW_QR_SCALE,
+    scaledWidth: 3,
+    scaledHeight: 4,
+  };
+}
+
+function startPreview() {
+  const canvas = $('#ar-canvas');
+  let renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  } catch (err) {
+    console.error('[ancestrales] preview: WebGL unavailable', err);
+    showError({
+      title: 'No se pudo abrir la vista previa',
+      paragraphs: ['Este navegador no permite gráficos 3D (WebGL).'],
+    });
+    return;
+  }
+  document.body.classList.add('is-preview');
+  renderer.setClearColor(0x000000, 0); // the gradient behind the canvas shows through
+  state.xr = { scene: new THREE.Scene(), camera: new THREE.PerspectiveCamera(PREVIEW_FOV, 1, 0.01, 50), renderer };
+  initScene();
+  framePreviewCamera();
+  window.addEventListener('resize', framePreviewCamera);
+
+  showScreen('ar');
+  setPhase('searching');
+  bindArControls(canvas);
+  const fake = previewDetection();
+  state.detections.set(fake.name, fake);
+  updateFromDetections();
+  spawnWhenModelReady();
+  renderer.setAnimationLoop(() => {
+    updateFrame();
+    renderer.render(state.xr.scene, state.xr.camera);
+  });
+  console.info('[ancestrales] preview mode: no camera, no XR8');
+}
+
 function boot() {
   if (!guardian) {
     showError({
       title: 'Guardián no encontrado',
       paragraphs: [
         `El código «${requestedKey}» no corresponde a ningún guardián de Ancestrales.`,
-        'Revisa que hayas escaneado el QR de tu tarjeta.',
+        'Revisa que hayas escaneado bien el código QR.',
       ],
       action: { label: 'Ver a El Mohán', onClick: () => { window.location.href = pageUrlFor('mohan'); } },
     });
@@ -1127,6 +1674,15 @@ function boot() {
   bindText('guardian-name', guardian.name);
   bindText('guardian-tagline', guardian.tagline);
   document.title = `${guardian.name} · Ancestrales AR`;
+  if (guardian.lore) {
+    fillReader(guardian.lore);
+    bindReader();
+  }
+
+  if (previewMode) {
+    startPreview();
+    return;
+  }
 
   if (!looksLikeMobile()) {
     showDesktopNotice();
@@ -1151,7 +1707,7 @@ function boot() {
       state.targetData = data;
       btn.disabled = false;
       btn.querySelector('.btn__label').textContent = 'Iniciar AR';
-      status.textContent = 'Ten a mano la tarjeta. Funciona mejor con buena luz.';
+      status.textContent = 'Ten a mano el código QR. Funciona mejor con buena luz.';
       btn.addEventListener('click', () => startAR(XR8), { once: true });
       console.info('[ancestrales] XR8 ready', typeof XR8.version === 'function' ? XR8.version() : '', '· targets', data.map((d) => d.name).join(', '));
     }).catch(showTargetLoadError);
@@ -1177,7 +1733,7 @@ $('#btn-copy').addEventListener('click', async () => {
   }
 });
 
-// Test/debug hook: read-only view of the anchoring state (no behaviour depends on it).
+// Read-only test hook (used by the browser checks): a view of the anchoring and panel state; no behaviour depends on it.
 window.__ancestrales = {
   get phase() { return state.phase; },
   get anchored() { return state.anchored; },
@@ -1196,6 +1752,27 @@ window.__ancestrales = {
     return state.anchor.position.clone().project(state.xr.camera).toArray();
   },
   get detections() { return Array.from(state.detections.keys()); },
+  get previewMode() { return previewMode; },
+  get readerOpen() { return state.readerOpen; },
+  get panel() {
+    const p = state.panel;
+    if (!p) return null;
+    return {
+      visible: p.mesh.visible, appear: p.appear, pressed: p.pressed,
+      position: p.mesh.position.toArray(), scale: p.mesh.scale.toArray(), yaw: p.mesh.rotation.y,
+      canvasSize: [p.canvas.width, p.canvas.height],
+    };
+  },
+  /** Screen position (client px) of the centre of the panel's button, for scripted taps. */
+  get panelButtonClient() {
+    const p = state.panel;
+    if (!p || !p.mesh.visible || !state.xr) return null;
+    const b = p.layout.button;
+    const local = new THREE.Vector3((b.x + b.w / 2) / p.canvas.width - 0.5, 0.5 - (b.y + b.h / 2) / p.canvas.height, 0);
+    p.mesh.updateMatrixWorld();
+    const ndc = p.mesh.localToWorld(local).project(state.xr.camera);
+    return [(ndc.x + 1) / 2 * window.innerWidth, (1 - ndc.y) / 2 * window.innerHeight];
+  },
   get tracking() { return { ...state.tracking }; },
   computeStandPose: (detail, cfgName, wasUpright = false) => {
     const out = { position: new THREE.Vector3(), quaternion: new THREE.Quaternion(), size: 1, upright: false };

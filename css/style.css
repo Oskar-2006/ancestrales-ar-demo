@@ -322,7 +322,7 @@ body.is-ar #ar-canvas { visibility: visible; }
 }
 .ar-badge svg { width: 28px; height: 28px; color: var(--gold); }
 
-/* Coach (before the first anchor) and the "se quedó aquí" toast share the same spot. */
+/* Coach (before the first anchor) and the "Leer historia" button (after it) share the bottom spot. */
 .ar-dock {
   align-self: center;
   margin-top: auto;
@@ -348,11 +348,11 @@ body.is-ar #ar-canvas { visibility: visible; }
   text-align: center;
   transition: opacity 280ms var(--ease-out), transform 280ms var(--ease-out);
 }
-.coach.is-hidden { opacity: 0; transform: translateY(8px); }
+.coach.is-hidden { opacity: 0; transform: translateY(8px); visibility: hidden; }
 
 .coach__icon { width: 64px; height: 64px; color: var(--bone); }
 .coach__icon svg { width: 100%; height: 100%; overflow: visible; }
-/* The card drifts slightly, as if held in front of the camera; the viewfinder breathes around it. */
+/* The QR drifts slightly, as if held in front of the camera; the viewfinder breathes around it. */
 .coach__card { animation: drift 2.8s ease-in-out infinite; transform-origin: 32px 32px; }
 @keyframes drift {
   0%, 100% { transform: translate(-2px, 1px) rotate(-4deg); }
@@ -372,9 +372,23 @@ body.is-ar #ar-canvas { visibility: visible; }
   text-wrap: balance;
 }
 
+/* Notices (tracking hint, "se quedó aquí" toast, gesture tip) float under the top bar, out of the
+   layout flow, so they never cover the guardian's feet. The toast and the tip never show together;
+   when the tracking hint is up they drop below it. */
+.tracking-hint,
+.toast,
 .gesture-tip {
-  align-self: center;
-  margin: 0 0 10px;
+  position: absolute;
+  top: calc(var(--safe-top) + 74px); /* 16px padding + 48px top bar + 10px */
+  left: calc(16px + var(--safe-left));
+  right: calc(16px + var(--safe-right));
+  width: fit-content;
+  margin: 0 auto;
+}
+.tracking-hint.is-visible ~ .toast,
+.tracking-hint.is-visible ~ .gesture-tip { top: calc(var(--safe-top) + 74px + 52px); }
+
+.gesture-tip {
   max-width: 340px;
   padding: 8px 14px;
   border-radius: 10px;
@@ -387,7 +401,6 @@ body.is-ar #ar-canvas { visibility: visible; }
 .gesture-tip.is-fading { opacity: 0; }
 
 .toast {
-  margin: 0;
   max-width: 320px;
   padding: 12px 18px;
   border-radius: var(--radius);
@@ -411,8 +424,6 @@ body.is-ar #ar-canvas { visibility: visible; }
 
 /* World tracking is struggling: a gentle note under the top bar. The guardian stays visible. */
 .tracking-hint {
-  align-self: center;
-  margin: 10px 0 0;
   max-width: 320px;
   padding: 8px 14px;
   border-radius: 999px;
@@ -432,6 +443,95 @@ body.is-ar #ar-canvas { visibility: visible; }
   visibility: visible;
   transition: opacity 300ms var(--ease-out), transform 300ms var(--ease-out), visibility 0s;
 }
+
+/* ---------- Lore reader (dialog over the AR view) ---------- */
+
+.reader {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding:
+    calc(16px + var(--safe-top))
+    calc(16px + var(--safe-right))
+    calc(16px + var(--safe-bottom))
+    calc(16px + var(--safe-left));
+  background: rgba(8, 10, 7, 0.76);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  pointer-events: auto; /* swallows every touch: nothing reaches the AR canvas behind */
+  touch-action: none;
+  opacity: 0;
+  transition: opacity 240ms var(--ease-out);
+}
+.reader.is-open { opacity: 1; }
+
+.reader__sheet {
+  width: 100%;
+  max-width: 560px;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 22px 20px 18px;
+  border-radius: 20px;
+  border: 1px solid rgba(201, 162, 39, 0.5);
+  background:
+    radial-gradient(120% 60% at 50% 0%, rgba(92, 138, 74, 0.2), transparent 70%),
+    linear-gradient(180deg, var(--stone-700), var(--stone-900));
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
+  transform: translateY(8px);
+  transition: transform 240ms var(--ease-out);
+}
+.reader.is-open .reader__sheet { transform: none; }
+
+.reader__head { text-align: center; }
+.reader__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(2rem, 9vw, 2.7rem);
+  line-height: 1.08;
+  color: var(--gold-light);
+  text-shadow: 0 0 24px rgba(143, 191, 106, 0.25);
+}
+.reader__subtitle {
+  margin: 4px 0 0;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 1.2rem;
+  color: var(--moss-light);
+}
+.reader__head::after {
+  content: "";
+  display: block;
+  height: 1px;
+  margin: 14px auto 0;
+  max-width: 220px;
+  background: linear-gradient(90deg, transparent, var(--gold-light), transparent);
+}
+
+.reader__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y; /* the sheet scrolls; body.is-ar would otherwise disable it */
+  -webkit-overflow-scrolling: touch;
+  padding-right: 4px;
+  font-size: 1.15rem;
+  line-height: 1.6;
+  color: var(--bone);
+  user-select: text;
+  -webkit-user-select: text;
+}
+.reader__body:focus-visible { outline: 2px solid var(--gold-light); outline-offset: 4px; border-radius: 6px; }
+.reader__body p { margin: 0 0 1em; }
+.reader__body p:last-child { margin-bottom: 0; }
+
+.reader__close { align-self: center; flex: none; }
 
 /* ---------- Credits ---------- */
 
@@ -503,6 +603,14 @@ body.is-ar #ar-canvas { visibility: visible; }
 }
 
 .noscript { position: fixed; inset: auto 16px 16px; color: var(--bone); }
+
+/* ---------- Preview mode (?preview=1): plain dark gradient instead of the camera feed ---------- */
+
+body.is-preview.is-ar {
+  background:
+    radial-gradient(90% 60% at 50% 30%, rgba(92, 138, 74, 0.28), transparent 70%),
+    linear-gradient(180deg, var(--stone-700), var(--stone-900));
+}
 
 /* ---------- Wider screens (desktop message) ---------- */
 

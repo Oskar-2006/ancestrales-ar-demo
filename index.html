@@ -54,8 +54,8 @@
         <svg class="emblem" aria-hidden="true"><use href="#emblem"/></svg>
         <p class="eyebrow">Ancestrales</p>
         <h1 class="title" data-bind="guardian-name">El Mohán</h1>
-        <p class="subtitle" data-bind="guardian-tagline">Guardián de los ríos</p>
-        <p class="lead">Apunta la cámara a la tarjeta: el guardián aparecerá sobre ella y se quedará ahí aunque te muevas.</p>
+        <p class="subtitle" data-bind="guardian-tagline">Guardián de las aguas</p>
+        <p class="lead">Apunta la cámara al código QR: el guardián aparecerá sobre él y se quedará ahí aunque te muevas.</p>
         <button class="btn btn--primary" id="btn-start" type="button" disabled>
           <span class="btn__label">Preparando…</span>
         </button>
@@ -100,9 +100,13 @@
       <!-- Shown while world tracking is LIMITED for a while; the guardian stays visible. -->
       <p class="tracking-hint" id="tracking-hint" role="status" aria-live="polite">Mueve el celular despacio para no perder el lugar</p>
 
+      <!-- Messages sit under the top bar so they never cover the guardian's feet. -->
+      <p class="toast" id="anchor-toast" role="status" aria-live="polite" hidden><span data-bind="guardian-name">El Mohán</span> se quedó aquí. Puedes moverte a su alrededor.</p>
+      <p class="gesture-tip" id="gesture-tip" hidden>Arrastra con un dedo para girarlo · pellizca para cambiar su tamaño</p>
+
       <div class="ar-dock">
         <div class="coach" id="coach" aria-live="polite">
-          <!-- Hand-drawn card outline inside a camera viewfinder. -->
+          <!-- Hand-drawn QR code inside a camera viewfinder. -->
           <div class="coach__icon" aria-hidden="true">
             <svg viewBox="0 0 64 64">
               <g class="coach__frame" fill="none" stroke="var(--moss-light)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -112,21 +116,37 @@
                 <path d="M17.2 55 H10.3 Q9.4 55 9.4 54 V47.2"/>
               </g>
               <g class="coach__card">
-                <path d="M23.2 14.4 L41.4 13.7 Q43.3 13.6 43.3 15.6 L43.6 48.6 Q43.6 50.5 41.7 50.6 L23.4 51 Q21.4 51 21.4 49.1 L21.1 16.4 Q21.1 14.5 23.2 14.4 Z"
-                      fill="rgba(14,17,13,.35)" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/>
-                <path d="M32.2 20.5 L35 29 L32.3 35.2 L29.4 29.1 Z" fill="var(--gold)" opacity=".9"/>
-                <path d="M24.8 39.6 q2.3 -2.5 4.6 0 t4.6 0 t4.6 0" fill="none" stroke="var(--moss-light)" stroke-width="1.8" stroke-linecap="round"/>
-                <rect x="35.4" y="42.6" width="5" height="5" rx=".6" fill="none" stroke="currentColor" stroke-width="1.3" opacity=".75"/>
+                <rect x="18.5" y="18.5" width="27" height="27" rx="2.6" fill="rgba(14,17,13,.35)" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/>
+                <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
+                  <rect x="22" y="22" width="7" height="7" rx=".8"/>
+                  <rect x="35" y="22" width="7" height="7" rx=".8"/>
+                  <rect x="22" y="35" width="7" height="7" rx=".8"/>
+                </g>
+                <g fill="var(--gold)" opacity=".9">
+                  <rect x="24.2" y="24.2" width="2.6" height="2.6"/>
+                  <rect x="37.2" y="24.2" width="2.6" height="2.6"/>
+                  <rect x="24.2" y="37.2" width="2.6" height="2.6"/>
+                </g>
+                <g fill="currentColor" opacity=".8">
+                  <rect x="31.4" y="22.4" width="2.6" height="2.6"/>
+                  <rect x="31.4" y="31.4" width="2.6" height="2.6"/>
+                  <rect x="36" y="32" width="2.6" height="2.6"/>
+                  <rect x="31.4" y="36" width="2.6" height="2.6"/>
+                  <rect x="36.4" y="37" width="5.6" height="2.6"/>
+                  <rect x="22.4" y="31.4" width="2.6" height="2.6"/>
+                </g>
               </g>
             </svg>
           </div>
-          <p class="coach__text" id="coach-text">Apunta la cámara a la tarjeta de <span data-bind="guardian-name">El Mohán</span></p>
+          <p class="coach__text" id="coach-text">Apunta la cámara al código QR de <span data-bind="guardian-name">El Mohán</span></p>
         </div>
 
-        <p class="toast" id="anchor-toast" role="status" aria-live="polite" hidden><span data-bind="guardian-name">El Mohán</span> se quedó aquí. Puedes moverte a su alrededor.</p>
+        <!-- Opens the reader; shown while the 3D panel is up. -->
+        <button class="btn btn--ghost" id="btn-read" type="button" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6.5C10 5 7 4.5 4 5v13c3-.5 6 0 8 1.5 2-1.5 5-2 8-1.5V5c-3-.5-6 0-8 1.5Z M12 6.5V19.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>Leer historia</span>
+        </button>
       </div>
-
-      <p class="gesture-tip" id="gesture-tip" hidden>Arrastra con un dedo para girarlo · pellizca para cambiar su tamaño</p>
 
       <footer class="credits credits--mini">
         Motor AR: 8th Wall, de Niantic Spatial — <a href="vendor/8thwall/LICENSE" target="_blank" rel="noopener">licencia</a> (© 2026 Niantic Spatial, sin garantías) · three.js (MIT)
@@ -153,6 +173,18 @@
         Motor AR: 8th Wall, de Niantic Spatial — <a href="vendor/8thwall/LICENSE" target="_blank" rel="noopener">licencia</a> (© 2026 Niantic Spatial, sin garantías) · three.js (MIT)
       </footer>
     </section>
+
+    <!-- Lore reader: opened from the 3D panel's button; content filled by app.js from guardians.js -->
+    <div class="reader" id="reader" hidden>
+      <div class="reader__sheet" role="dialog" aria-modal="true" aria-labelledby="reader-title">
+        <header class="reader__head">
+          <h2 class="reader__title" id="reader-title"></h2>
+          <p class="reader__subtitle" id="reader-subtitle"></p>
+        </header>
+        <div class="reader__body" id="reader-body" tabindex="0"></div>
+        <button class="btn btn--primary reader__close" id="reader-close" type="button">Cerrar</button>
+      </div>
+    </div>
   </main>
 
   <noscript>

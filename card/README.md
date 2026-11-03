@@ -1,5 +1,7 @@
 # Carta coleccionable · El Mohán
 
+> Nota: la carta ya no es el image target del demo AR; la cámara solo reconoce el QR de `qr/qr-mohan.png`. Este material se conserva como arte.
+
 La carta cumple dos funciones: es el **marcador de imagen** (image target) que reconoce 8th Wall y lleva el **QR** que abre la página de AR.
 
 | Archivo | Qué es |

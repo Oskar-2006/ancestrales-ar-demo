@@ -1,9 +1,8 @@
 #!/usr/bin/env node
-// Builds the 8th Wall image targets for El Mohán.
+// Builds the 8th Wall image target for El Mohán.
 //
-// Targets (both are loaded by the page at once; either one makes the guardian appear):
-//   mohan-card  from card/mohan-card-target.png  (3:4 portrait, the full card art incl. its QR)
-//   mohan-qr    from qr/qr-mohan.png             (square QR incl. quiet zone), centred on a white
+// Target (loaded by the page; recognising it makes the guardian appear):
+//   mohan-qr    from qr/qr-mohan.png  (square QR incl. quiet zone), centred on a white
 //               3:4 canvas first, because 8th Wall image targets are always 3:4
 //
 // Output per target in image-targets/: <name>.json plus <name>_luminance.jpg (what XR8 actually
@@ -22,7 +21,7 @@
 // Options (all optional):
 //   --tool-dir <dir>  folder whose node_modules holds @8thwall/image-target-cli (or env IMAGE_TARGET_CLI_DIR;
 //                     defaults to the current directory)
-//   --only <name>     build just one target (mohan-card or mohan-qr)
+//   --only <name>     build just one target (useful once there are several guardians)
 //   --input <png>     with --only: use another source image (e.g. a test stand-in)
 //   --out <dir>       output folder (default image-targets)
 
@@ -37,19 +36,7 @@ const JPEG_QUALITY = 92
 
 // Target names must match js/guardians.js.
 //   pad3x4:    centre the source on a white 3:4 portrait canvas (as wide as the source)
-//   maskWhite: rectangle (source pixels) painted white before building the target.
-//              The card's QR is the same pattern as the mohan-qr target; if the card target kept it,
-//              a bare printed QR would be recognised as the whole card and the guardian would be
-//              placed where the (absent) card centre would be. Without it, the card is tracked by
-//              its artwork only and the QR belongs to mohan-qr alone. If the card layout changes,
-//              update this rectangle (it must cover the QR modules, inside the QR's white box).
 const TARGETS = [
-  {
-    name: 'mohan-card',
-    input: 'card/mohan-card-target.png',
-    pad3x4: false,
-    maskWhite: {left: 474, top: 741, width: 239, height: 239},
-  },
   {name: 'mohan-qr', input: 'qr/qr-mohan.png', pad3x4: true},
 ]
 
@@ -97,25 +84,6 @@ async function buildTarget(tools, target, input, outDir) {
   // Flatten any transparency onto white (what it looks like on paper) and re-encode as JPEG,
   // so the CLI writes .jpg resources instead of large PNGs.
   let source = sharp(input).flatten({background: '#ffffff'})
-  if (target.maskWhite) {
-    const m = target.maskWhite
-    // Sanity check: the rectangle should hold a QR (a mix of dark and light modules).
-    const stats = await sharp(input).flatten({background: '#ffffff'}).extract(m).greyscale().raw()
-      .toBuffer({resolveWithObject: true})
-    let dark = 0
-    for (const v of stats.data) if (v < 100) dark++
-    const darkRatio = dark / stats.data.length
-    if (darkRatio < 0.25 || darkRatio > 0.75) {
-      console.warn(
-        `Warning: the maskWhite rectangle of "${target.name}" is ${Math.round(darkRatio * 100)} % dark; ` +
-        'it does not look like the QR any more. Check the rectangle against the card layout.'
-      )
-    }
-    const white = await sharp({
-      create: {width: m.width, height: m.height, channels: 3, background: '#ffffff'},
-    }).png().toBuffer()
-    source = sharp(await source.composite([{input: white, left: m.left, top: m.top}]).png().toBuffer())
-  }
   if (target.pad3x4) {
     const meta = await sharp(input).metadata()
     const width = meta.width
@@ -170,7 +138,6 @@ async function buildTarget(tools, target, input, outDir) {
   const lum = await sharp(path.join(outDir, data.resources.luminanceImage)).metadata()
   console.log(`Image target "${data.name}" (${data.type}) written to ${path.relative(REPO_ROOT, dataPath)}`)
   console.log(`  source    ${path.relative(REPO_ROOT, input)} -> ${metadata.width}x${metadata.height}${target.pad3x4 ? ' (padded to 3:4)' : ''}`)
-  if (target.maskWhite) console.log(`  mask      ${JSON.stringify(target.maskWhite)} painted white`)
   console.log(`  crop      left ${geometry.left}, top ${geometry.top}, ${geometry.width}x${geometry.height}, rotated ${geometry.isRotated}`)
   console.log(`  imagePath ${data.imagePath} (${lum.width}x${lum.height})`)
   return data
