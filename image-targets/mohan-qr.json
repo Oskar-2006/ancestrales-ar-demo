@@ -1,0 +1,23 @@
+{
+  "imagePath": "image-targets/mohan-qr_luminance.jpg",
+  "metadata": null,
+  "name": "mohan-qr",
+  "type": "PLANAR",
+  "properties": {
+    "left": 0,
+    "top": 0,
+    "width": 900,
+    "height": 1200,
+    "isRotated": false,
+    "originalWidth": 900,
+    "originalHeight": 1200
+  },
+  "resources": {
+    "originalImage": "mohan-qr_original.jpg",
+    "croppedImage": "mohan-qr_cropped.jpg",
+    "thumbnailImage": "mohan-qr_thumbnail.jpg",
+    "luminanceImage": "mohan-qr_luminance.jpg"
+  },
+  "created": 1793676528399,
+  "updated": 1793676528399
+}

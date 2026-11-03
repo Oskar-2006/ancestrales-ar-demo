@@ -1,17 +1,36 @@
-// Guardian catalogue. The QR on each collectible figure opens index.html?guardian=<key>.
-// To add a guardian: export its .glb into assets/ and add an entry here.
+// Guardian catalogue. The QR on each printed card opens index.html?guardian=<key>, and the
+// camera then looks for that same card (an 8th Wall image target) to stand the guardian on.
+// To add a guardian: export its .glb into assets/, build its image target with
+// tools/build_image_target.js, and add an entry here.
 //   model        relative path to the .glb (relative paths keep GitHub Pages subpaths working)
-//   heightMeters height the model is normalized to at scale 1
 //   idleClip     name of the looping animation to play (falls back to the first clip)
 //   name/tagline user-facing text (Spanish)
+//   targets      image targets that make the guardian appear; all are tracked at once. The one with
+//                the highest priority in view wins; at equal priority the first one found stays.
+//                Per target:
+//     name          image target name; must equal "name" inside the target JSON
+//     data          relative path to the JSON written by tools/build_image_target.js
+//     heightOnCard  figure height as a multiple of the target's width (1 = as tall as it is wide),
+//                   so it fits a small printed QR and a full card alike
+//     footOffset    where the feet stand along the target's vertical axis, in target heights
+//                   (0 = centre, -0.5 = bottom edge, 0.5 = top edge)
+//     priority      higher wins when several targets are in view
 
 export const GUARDIANS = {
   mohan: {
     name: 'El Mohán',
     tagline: 'Guardián de los ríos',
     model: 'assets/mohan-prueba.glb',
-    heightMeters: 0.3,
     idleClip: 'Idle',
+    targets: [
+      // Recommended: the whole card (rich, non-repetitive artwork). The feet stand on the river
+      // emblem in the upper half, leaving the name and the QR visible in front of the figure.
+      { name: 'mohan-card', data: 'image-targets/mohan-card.json', heightOnCard: 1, footOffset: 0.18, priority: 1 },
+      // Experimental: the QR alone (centred on a white 3:4 canvas, so its width = the QR's width).
+      // The card target has its QR masked out (tools/build_image_target.js), so a bare QR can only
+      // match this target; on the full card, the card takes over as soon as it is recognised.
+      { name: 'mohan-qr', data: 'image-targets/mohan-qr.json', heightOnCard: 1, footOffset: 0, priority: 0 },
+    ],
   },
 };
 

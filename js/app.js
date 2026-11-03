@@ -1,16 +1,19 @@
-// Ancestrales AR — tap-to-place guardian on top of the 8th Wall engine (XR8) with three.js.
+// Ancestrales AR — the guardian stands on its printed card (8th Wall image target) with three.js.
 //
 // Wiring overview:
 //   1. three.js is loaded as ES modules (import map in index.html). XR8.Threejs expects a
 //      global window.THREE, so a plain copy of the namespace (plus GLTFLoader) is exposed.
 //   2. xr.js (8th Wall engine binary) loads async and fires 'xrloaded' when window.XR8 exists.
-//   3. On "Iniciar AR" (a user gesture, required by iOS for camera + motion sensors) the camera
-//      pipeline is assembled and XR8.run({canvas}) starts:
+//      In parallel the guardian's image target JSON (built by tools/build_image_target.js) is fetched.
+//   3. On "Iniciar AR" (a user gesture) the camera pipeline is assembled and XR8.run({canvas}) starts:
 //        GlTextureRenderer  draws the camera feed into the canvas
-//        Threejs            creates scene / camera / renderer and keeps the camera in sync with SLAM
-//        XrController       world tracking (SLAM) + hitTest()
+//        Threejs            creates scene / camera / renderer
+//        XrController       image target detection + tracking (world tracking disabled, see startAR)
 //        canvas sizer       ours: keeps the canvas at window size
-//        app module         ours: scene content, placement, gestures, UI state
+//        app module         ours: scene content, image target events, gestures, UI state
+//   4. 'reality.imagefound' / 'imageupdated' / 'imagelost' drive an anchor group that follows the
+//      active target (the whole card, or the QR alone); the guardian stands on it with
+//      "up" = the target's normal.
 
 import * as THREE_NS from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -24,22 +27,26 @@ window.__appBooted = true;
 // Constants
 // ---------------------------------------------------------------------------
 
-// With scale 'responsive', XR8 assumes the ground plane is at y = 0 and the camera starts at
-// this height. ~1.5 m (a phone held at chest height) makes 1 scene unit roughly 1 metre.
-const CAMERA_START_HEIGHT = 1.5;
 const MIN_USER_SCALE = 0.5;
 const MAX_USER_SCALE = 3;
-const TAP_MAX_MOVE_PX = 12;
-const TAP_MAX_MS = 350;
+const DRAG_START_PX = 6;
 const ROTATE_RADIANS_PER_PX = (Math.PI * 2) / 700;
 const XR8_LOAD_TIMEOUT_MS = 45000;
-// If tracking never reports NORMAL (poor light, plain floor) we still allow placement on the
-// estimated ground plane after this delay, so the user is never stuck.
-const READY_FALLBACK_MS = 7000;
-const RETICLE_HIT_INTERVAL_MS = 120;
-const MIN_SCAN_MS = 1500;
+// Pose smoothing: exponential approach to the latest tracked pose. 20/s is a ~50 ms time
+// constant: it removes frame-to-frame jitter but still follows a card moved by hand.
+const SMOOTHING_RATE = 20;
+// If the card jumps further than this (in card heights) we snap instead of gliding across the screen.
+const SNAP_DISTANCE = 0.6;
+// Short tracking dropouts (motion blur, a finger over the card) should not make the guardian blink.
+const LOST_GRACE_MS = 500;
+const APPEAR_MS = 700;
+const DISAPPEAR_MS = 300;
 
-const HIT_PRIORITY = { DETECTED_SURFACE: 0, ESTIMATED_SURFACE: 1, FEATURE_POINT: 2 };
+// Image target frame (8th Wall): the card lies in the target's local XY plane, +Y towards the
+// card's top edge, +Z out of the printed face; 1 unit = the card's height (detail.scale).
+// The model's own frame: +Y up, +Z its front. Rotating +90° about X maps model up -> card
+// normal and model front -> -Y, i.e. it faces out of the card's bottom edge, towards the viewer.
+const STAND_ROTATION_X = Math.PI / 2;
 
 // ---------------------------------------------------------------------------
 // DOM helpers
@@ -125,8 +132,8 @@ function showDesktopNotice() {
   showError({
     title: 'Ábrelo en tu celular',
     paragraphs: [
-      'Esta experiencia usa la cámara y los sensores de movimiento de un celular.',
-      'Escanea el código QR de tu figura o abre este enlace en el teléfono:',
+      `Esta experiencia usa la cámara trasera de un celular para encontrar la tarjeta de ${guardian ? guardian.name : 'tu guardián'}.`,
+      'Escanea el código QR de la tarjeta o abre este enlace en el teléfono:',
     ],
     url: window.location.href,
   });
@@ -161,7 +168,7 @@ function showUnsupportedBrowser(XR8) {
 }
 
 // ---------------------------------------------------------------------------
-// XR8 loading
+// XR8 + image target loading
 // ---------------------------------------------------------------------------
 
 function waitForXR8(timeoutMs) {
@@ -178,6 +185,34 @@ function showEngineLoadError() {
   showError({
     title: 'No se pudo cargar el motor AR',
     paragraphs: ['Revisa tu conexión a internet y vuelve a intentarlo.'],
+    action: { label: 'Reintentar', onClick: reload },
+  });
+}
+
+/**
+ * Fetches every image target JSON of the guardian. Each imagePath
+ * ("image-targets/<name>_luminance.jpg") is relative to the page, which is what XR8 resolves
+ * it against, so GitHub Pages subpaths keep working.
+ */
+function loadTargetData() {
+  return Promise.all(guardian.targets.map(async (cfg) => {
+    const res = await fetch(cfg.data, { cache: 'no-cache' });
+    if (!res.ok) throw new Error(`target json ${cfg.data}: HTTP ${res.status}`);
+    const data = await res.json();
+    if (data.name !== cfg.name || !data.imagePath) {
+      throw new Error(`unexpected target json ${cfg.data} (name "${data.name}")`);
+    }
+    return data;
+  }));
+}
+
+const targetConfig = (name) => guardian.targets.find((t) => t.name === name) || null;
+
+function showTargetLoadError(err) {
+  console.error('[ancestrales] image target failed to load', err);
+  showError({
+    title: 'No se pudo preparar la tarjeta',
+    paragraphs: ['Faltan los datos para reconocer la tarjeta. Revisa tu conexión y vuelve a intentarlo.'],
     action: { label: 'Reintentar', onClick: reload },
   });
 }
@@ -220,6 +255,7 @@ const glowRingTexture = () => makeRadialTexture([
 // ---------------------------------------------------------------------------
 
 const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+const easeInCubic = (t) => t * t * t;
 const easeOutBack = (t) => {
   const c1 = 1.4;
   const c3 = c1 + 1;
@@ -228,16 +264,22 @@ const easeOutBack = (t) => {
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
 const tweens = new Set();
-function tween(durationMs, onStep, ease = easeOutCubic) {
-  const t = { start: performance.now(), durationMs, onStep, ease };
+function tween(durationMs, onStep, ease = easeOutCubic, onDone = null) {
+  const t = { start: performance.now(), durationMs, onStep, ease, onDone };
   tweens.add(t);
   return t;
+}
+function cancelTween(t) {
+  if (t) tweens.delete(t);
 }
 function runTweens(now) {
   tweens.forEach((t) => {
     const k = clamp((now - t.start) / t.durationMs, 0, 1);
     t.onStep(t.ease(k), k);
-    if (k >= 1) tweens.delete(t);
+    if (k >= 1) {
+      tweens.delete(t);
+      if (t.onDone) t.onDone();
+    }
   });
 }
 
@@ -246,26 +288,44 @@ function runTweens(now) {
 // ---------------------------------------------------------------------------
 
 const state = {
-  phase: 'idle', // idle | starting | scanning | ready | placed
+  phase: 'idle', // idle | starting | searching | tracking
   xr: null, // {scene, camera, renderer}
+  targetData: null, // parsed image target JSONs (one per entry in guardian.targets)
+  targetDataPromise: null,
   modelTemplate: null,
   clips: [],
   modelPromise: null,
-  root: null, // placed guardian group
-  pivot: null, // normalized model container
+  anchor: null, // follows the card pose (smoothed); scale = card height
+  stand: null, // rotates the guardian upright on the card plane
+  root: null, // guardian group: user rotation + size
   ring: null,
+  ringBase: 1,
+  spirit: null,
   mixer: null,
-  reticle: null,
+  // Every target currently in view: name -> latest event detail.
+  detections: new Map(),
+  // The target the guardian stands on: the highest priority in view; at equal priority the first
+  // one found stays while it remains in view.
+  activeName: null,
+  activeConfig: null,
+  // Latest pose of the active target.
+  target: {
+    seen: false, // currently detected (or within the lost grace period)
+    position: new THREE.Vector3(),
+    quaternion: new THREE.Quaternion(),
+    scale: 1,
+    widthRatio: 0.75, // card width / card height
+  },
+  lostTimer: 0,
+  appear: 0, // 0..1 scale factor of the appear/disappear animation
+  appearTween: null,
   userScale: 1,
-  appear: 1,
-  trackingNormal: false,
-  videoAt: 0,
-  lastReticleHit: 0,
+  userRotation: 0,
+  gestureTipShown: false,
   lastFrame: performance.now(),
 };
 
-const raycaster = new THREE.Raycaster();
-const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const tmpVec = new THREE.Vector3();
 
 // ---------------------------------------------------------------------------
 // Model loading
@@ -302,11 +362,32 @@ function showModelError(err) {
   });
 }
 
-/** Builds the placed guardian: normalized model + contact shadow + glow ring + rim light. */
+/**
+ * Builds anchor (card pose) > stand (upright on the card) > root (user rotation/size) >
+ * normalized model of height 1 + contact shadow + glow ring + rim light.
+ */
 function buildGuardian() {
+  const anchor = new THREE.Group();
+  anchor.name = 'card-anchor';
+  anchor.visible = false;
+
+  const stand = new THREE.Group();
+  stand.name = 'card-stand';
+  stand.rotation.x = STAND_ROTATION_X;
+  // Where the feet stand along the target's vertical axis (target spans -0.5..0.5 in y).
+  stand.position.set(0, state.activeConfig ? state.activeConfig.footOffset : 0, 0);
+  anchor.add(stand);
+
+  // Key light lives in the card's frame: light comes from above the card and in front of the
+  // figure, whatever the card's angle to the phone.
+  const key = new THREE.DirectionalLight(0xfff0d2, 2.2);
+  key.position.set(0.8, 2, 1.4);
+  stand.add(key);
+  stand.add(key.target);
+
   const root = new THREE.Group();
   root.name = 'guardian-root';
-  root.visible = false;
+  stand.add(root);
 
   const model = state.modelTemplate;
   model.traverse((o) => {
@@ -316,12 +397,12 @@ function buildGuardian() {
     }
   });
 
-  // Normalize: feet on y = 0, centred on x/z, height = heightMeters.
+  // Normalize: feet on y = 0, centred on x/z, height = 1 (sized against the card later).
   const box = new THREE.Box3().setFromObject(model);
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
   const height = size.y > 1e-6 ? size.y : 1;
-  const k = guardian.heightMeters / height;
+  const k = 1 / height;
   model.position.set(-center.x, -box.min.y, -center.z);
   const pivot = new THREE.Group();
   pivot.scale.setScalar(k);
@@ -335,7 +416,7 @@ function buildGuardian() {
     new THREE.MeshBasicMaterial({ map: shadowTexture(), transparent: true, depthWrite: false, toneMapped: false }),
   );
   shadow.rotation.x = -Math.PI / 2;
-  shadow.position.y = 0.002;
+  shadow.position.y = 0.006;
   shadow.scale.setScalar(footprint * 1.6);
   shadow.renderOrder = 1;
   root.add(shadow);
@@ -348,14 +429,15 @@ function buildGuardian() {
     }),
   );
   ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 0.003;
+  ring.position.y = 0.01;
   ring.scale.setScalar(footprint * 2.2);
   ring.renderOrder = 2;
   root.add(ring);
 
-  // Faint green light near the feet: the "spirit" glow of the river.
-  const spirit = new THREE.PointLight(0x8fbf6a, 0.35, guardian.heightMeters * 2.5, 2);
-  spirit.position.set(0, guardian.heightMeters * 0.15, guardian.heightMeters * 0.25);
+  // Faint green light near the feet: the "spirit" glow of the river. Its range and intensity are
+  // rescaled every frame (see updateSpiritLight) because the card's world units are not metres.
+  const spirit = new THREE.PointLight(0x8fbf6a, 0.35, 2.5, 2);
+  spirit.position.set(0, 0.15, 0.25);
   root.add(spirit);
 
   if (state.clips.length) {
@@ -370,25 +452,26 @@ function buildGuardian() {
     console.info('[ancestrales] model has no animations');
   }
 
+  state.anchor = anchor;
+  state.stand = stand;
   state.root = root;
-  state.pivot = pivot;
   state.ring = ring;
-  return root;
+  state.ringBase = ring.scale.x;
+  state.spirit = spirit;
+  return anchor;
 }
 
-function buildReticle() {
-  const group = new THREE.Group();
-  const ring = new THREE.Mesh(
-    new THREE.RingGeometry(0.055, 0.07, 48),
-    new THREE.MeshBasicMaterial({ color: 0xe2c35a, transparent: true, opacity: 0.85, depthWrite: false, toneMapped: false }),
-  );
-  const dot = new THREE.Mesh(
-    new THREE.CircleGeometry(0.012, 24),
-    new THREE.MeshBasicMaterial({ color: 0x8fbf6a, transparent: true, opacity: 0.9, depthWrite: false, toneMapped: false }),
-  );
-  [ring, dot].forEach((m) => { m.rotation.x = -Math.PI / 2; group.add(m); });
-  group.visible = false;
-  return group;
+// Reference size the spirit light was tuned for (the original 0.3 m tall figure).
+const SPIRIT_REFERENCE_HEIGHT = 0.3;
+const SPIRIT_REFERENCE_INTENSITY = 0.35;
+
+function updateSpiritLight() {
+  // Figure height in world units = root's world scale (the model is normalized to height 1).
+  const h = state.root.getWorldScale(tmpVec).x;
+  if (!(h > 1e-6)) return;
+  const s = h / SPIRIT_REFERENCE_HEIGHT;
+  state.spirit.distance = 2.5 * h;
+  state.spirit.intensity = SPIRIT_REFERENCE_INTENSITY * s * s; // keeps the look of the 1/d² falloff
 }
 
 // ---------------------------------------------------------------------------
@@ -396,92 +479,169 @@ function buildReticle() {
 // ---------------------------------------------------------------------------
 
 function initScene() {
-  const { scene, camera, renderer } = state.xr;
+  const { scene, renderer } = state.xr;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
 
   const hemi = new THREE.HemisphereLight(0xe8eedc, 0x2b3325, 1.6);
   scene.add(hemi);
-  const sun = new THREE.DirectionalLight(0xfff0d2, 2.2);
-  sun.position.set(1.2, 3, 1.6);
-  scene.add(sun);
+}
 
-  state.reticle = buildReticle();
-  scene.add(state.reticle);
-
-  // Start the camera at a known height so the SLAM scale matches the scene.
-  camera.position.set(0, CAMERA_START_HEIGHT, 0);
-  window.XR8.XrController.updateCameraProjectionMatrix({
-    origin: camera.position,
-    facing: camera.quaternion,
-  });
+function ensureGuardian() {
+  if (!state.anchor && state.modelTemplate && state.xr) state.xr.scene.add(buildGuardian());
+  return state.anchor;
 }
 
 // ---------------------------------------------------------------------------
-// Hit testing
+// Image target tracking
 // ---------------------------------------------------------------------------
-
-/** Returns a world point on a real surface under the normalized screen point, or null. */
-function hitSurface(nx, ny) {
-  let hits = [];
-  try {
-    hits = window.XR8.XrController.hitTest(nx, ny, ['DETECTED_SURFACE', 'ESTIMATED_SURFACE', 'FEATURE_POINT']) || [];
-  } catch (err) {
-    hits = [];
-  }
-  if (hits.length) {
-    hits.sort((a, b) => (HIT_PRIORITY[a.type] ?? 9) - (HIT_PRIORITY[b.type] ?? 9) || a.distance - b.distance);
-    const p = hits[0].position;
-    return new THREE.Vector3(p.x, p.y, p.z);
-  }
-  // Fallback: the ground plane XR8 assumes at y = 0.
-  const { camera } = state.xr;
-  raycaster.setFromCamera(new THREE.Vector2(nx * 2 - 1, -(ny * 2 - 1)), camera);
-  const out = new THREE.Vector3();
-  if (!raycaster.ray.intersectPlane(groundPlane, out)) return null;
-  if (out.distanceTo(camera.position) > 8) return null;
-  return out;
-}
-
-// ---------------------------------------------------------------------------
-// Placement + gestures
-// ---------------------------------------------------------------------------
-
-function faceCamera(position) {
-  const cam = state.xr.camera.position;
-  return Math.atan2(cam.x - position.x, cam.z - position.z);
-}
-
-function placeAt(nx, ny) {
-  if (state.phase !== 'ready' && state.phase !== 'placed') return;
-  const point = hitSurface(nx, ny);
-  if (!point) return;
-
-  if (!state.root) state.xr.scene.add(buildGuardian());
-  const root = state.root;
-
-  if (state.phase === 'ready') {
-    // First appearance: rise from the ground with a soft overshoot and a flash of the ring.
-    root.position.copy(point);
-    root.rotation.y = faceCamera(point);
-    root.visible = true;
-    state.appear = 0;
-    tween(700, (e) => { state.appear = e; applyScale(); }, easeOutBack);
-    tween(1400, (e) => {
-      state.ring.material.opacity = 0.35 + (1 - e) * 0.65;
-      state.ring.scale.setScalar(state.ring.userData.base * (0.6 + e * 0.4));
-    });
-    state.ring.userData.base = state.ring.userData.base || state.ring.scale.x;
-    setPhase('placed');
-    showGestureTip();
-  } else {
-    const from = root.position.clone();
-    tween(380, (e) => root.position.lerpVectors(from, point, e));
-  }
-}
 
 function applyScale() {
-  if (state.root) state.root.scale.setScalar(state.userScale * Math.max(state.appear, 0.001));
+  if (!state.root) return;
+  // Figure height = target width * heightOnCard (anchor units are target heights).
+  const heightOnCard = state.activeConfig ? state.activeConfig.heightOnCard : 1;
+  const base = state.target.widthRatio * heightOnCard;
+  state.root.scale.setScalar(base * state.userScale * Math.max(state.appear, 0.001));
 }
+
+function readTargetPose(detail) {
+  const t = state.target;
+  t.position.set(detail.position.x, detail.position.y, detail.position.z);
+  t.quaternion.set(detail.rotation.x, detail.rotation.y, detail.rotation.z, detail.rotation.w).normalize();
+  t.scale = detail.scale || 1;
+  if (detail.scaledWidth && detail.scaledHeight) t.widthRatio = detail.scaledWidth / detail.scaledHeight;
+}
+
+function snapAnchorToTarget() {
+  const a = state.anchor;
+  a.position.copy(state.target.position);
+  a.quaternion.copy(state.target.quaternion);
+  a.scale.setScalar(state.target.scale);
+}
+
+/** Bounce in (or resume from a half-finished disappear) with the ring flash. */
+function appear() {
+  if (!ensureGuardian()) return; // model still loading: called again once it arrives
+  const from = state.appear;
+  if (!state.anchor.visible || from < 0.05) snapAnchorToTarget();
+  state.anchor.visible = true;
+  cancelTween(state.appearTween);
+  state.appearTween = tween(from < 0.5 ? APPEAR_MS : APPEAR_MS * 0.6, (e) => {
+    state.appear = from + (1 - from) * e;
+    applyScale();
+  }, easeOutBack);
+  if (from < 0.5) {
+    tween(1400, (e) => {
+      state.ring.material.opacity = 0.35 + (1 - e) * 0.65;
+      state.ring.scale.setScalar(state.ringBase * (0.6 + e * 0.4));
+    });
+  }
+  setPhase('tracking');
+  if (!state.gestureTipShown) {
+    state.gestureTipShown = true;
+    showGestureTip();
+  }
+}
+
+function disappear() {
+  if (!state.anchor || !state.anchor.visible) {
+    setPhase('searching');
+    return;
+  }
+  const from = state.appear;
+  cancelTween(state.appearTween);
+  state.appearTween = tween(DISAPPEAR_MS, (e) => {
+    state.appear = from * (1 - e);
+    applyScale();
+  }, easeInCubic, () => {
+    state.anchor.visible = false;
+    state.appearTween = null;
+  });
+  setPhase('searching');
+}
+
+/** Makes `name` (already in state.detections) the target the guardian stands on. */
+function activateTarget(name) {
+  state.activeName = name;
+  state.activeConfig = targetConfig(name);
+  readTargetPose(state.detections.get(name));
+  if (state.stand) state.stand.position.y = state.activeConfig.footOffset;
+  applyScale();
+  console.info('[ancestrales] standing on target:', name);
+}
+
+function onImageFound({ detail }) {
+  if (!detail || !targetConfig(detail.name)) return;
+  console.info('[ancestrales] image found:', detail.name);
+  state.detections.set(detail.name, detail);
+
+  if (state.activeName === detail.name) {
+    // The active target came back (possibly within the lost grace period).
+    clearTimeout(state.lostTimer);
+    state.lostTimer = 0;
+    readTargetPose(detail);
+  } else {
+    // Another target is active and still in view: keep it unless this one ranks higher
+    // (the full card beats the QR alone); at equal rank the first one found stays.
+    if (state.activeName && !state.lostTimer
+        && targetConfig(detail.name).priority <= state.activeConfig.priority) return;
+    // Nothing active, or the active one is about to be dropped: switch to this one.
+    const switching = !!state.activeName;
+    clearTimeout(state.lostTimer);
+    state.lostTimer = 0;
+    activateTarget(detail.name);
+    if (switching && state.anchor) snapAnchorToTarget();
+  }
+  state.target.seen = true;
+  appear();
+}
+
+function onImageUpdated({ detail }) {
+  if (!detail || !targetConfig(detail.name)) return;
+  state.detections.set(detail.name, detail);
+  if (detail.name === state.activeName) readTargetPose(detail);
+}
+
+function onImageLost({ detail }) {
+  if (!detail || !targetConfig(detail.name)) return;
+  console.info('[ancestrales] image lost:', detail.name);
+  state.detections.delete(detail.name);
+  if (detail.name !== state.activeName) return;
+  clearTimeout(state.lostTimer);
+  state.lostTimer = setTimeout(() => {
+    state.lostTimer = 0;
+    // Another target still in view (e.g. the QR while the rest of the card is covered): move there.
+    const next = Array.from(state.detections.keys())
+      .sort((a, b) => targetConfig(b).priority - targetConfig(a).priority)[0];
+    if (next) {
+      activateTarget(next);
+      if (state.anchor) snapAnchorToTarget();
+      appear();
+      return;
+    }
+    state.activeName = null;
+    state.target.seen = false;
+    disappear();
+  }, LOST_GRACE_MS);
+}
+
+/** Frame-rate independent exponential smoothing towards the last tracked pose. */
+function followTarget(dt) {
+  const a = state.anchor;
+  const t = state.target;
+  if (!a || !a.visible || !t.seen) return;
+  if (a.position.distanceTo(t.position) > SNAP_DISTANCE * t.scale) {
+    snapAnchorToTarget();
+    return;
+  }
+  const alpha = 1 - Math.exp(-SMOOTHING_RATE * dt);
+  a.position.lerp(t.position, alpha);
+  a.quaternion.slerp(t.quaternion, alpha);
+  a.scale.setScalar(a.scale.x + (t.scale - a.scale.x) * alpha);
+}
+
+// ---------------------------------------------------------------------------
+// Gestures: one finger rotates about the card normal, two fingers scale.
+// ---------------------------------------------------------------------------
 
 const pointers = new Map();
 let gesture = null;
@@ -491,6 +651,10 @@ function pointerDistance() {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
+function applyUserRotation() {
+  if (state.root) state.root.rotation.y = state.userRotation;
+}
+
 function onPointerDown(e) {
   if (!document.body.classList.contains('is-ar')) return;
   e.preventDefault();
@@ -498,10 +662,7 @@ function onPointerDown(e) {
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
   if (pointers.size === 1) {
-    gesture = {
-      type: 'pending', startX: e.clientX, startY: e.clientY, startT: performance.now(),
-      startRot: state.root ? state.root.rotation.y : 0,
-    };
+    gesture = { type: 'pending', startX: e.clientX, startRot: state.userRotation, startY: e.clientY };
   } else if (pointers.size === 2) {
     gesture = { type: 'pinch', startDist: Math.max(pointerDistance(), 1), startScale: state.userScale };
   }
@@ -511,7 +672,7 @@ function onPointerMove(e) {
   if (!pointers.has(e.pointerId) || !gesture) return;
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-  if (gesture.type === 'pinch' && pointers.size >= 2 && state.phase === 'placed') {
+  if (gesture.type === 'pinch' && pointers.size >= 2) {
     state.userScale = clamp(gesture.startScale * (pointerDistance() / gesture.startDist), MIN_USER_SCALE, MAX_USER_SCALE);
     applyScale();
     return;
@@ -519,22 +680,17 @@ function onPointerMove(e) {
   if (pointers.size === 1 && (gesture.type === 'pending' || gesture.type === 'rotate')) {
     const dx = e.clientX - gesture.startX;
     const dy = e.clientY - gesture.startY;
-    if (gesture.type === 'pending' && Math.hypot(dx, dy) > TAP_MAX_MOVE_PX) gesture.type = 'rotate';
-    if (gesture.type === 'rotate' && state.root && state.phase === 'placed') {
-      state.root.rotation.y = gesture.startRot + dx * ROTATE_RADIANS_PER_PX;
+    if (gesture.type === 'pending' && Math.hypot(dx, dy) > DRAG_START_PX) gesture.type = 'rotate';
+    if (gesture.type === 'rotate') {
+      state.userRotation = gesture.startRot + dx * ROTATE_RADIANS_PER_PX;
+      applyUserRotation();
     }
   }
 }
 
 function onPointerUp(e) {
   if (!pointers.has(e.pointerId)) return;
-  const wasSingle = pointers.size === 1;
   pointers.delete(e.pointerId);
-
-  if (gesture && gesture.type === 'pending' && wasSingle
-      && performance.now() - gesture.startT < TAP_MAX_MS) {
-    placeAt(e.clientX / window.innerWidth, e.clientY / window.innerHeight);
-  }
   // After a pinch, ignore the remaining finger until everything is lifted (avoids a jump).
   if (pointers.size === 0) gesture = null;
   else if (gesture && gesture.type === 'pinch') gesture = { type: 'ignore' };
@@ -569,43 +725,24 @@ function showGestureTip() {
 
 function setPhase(phase) {
   state.phase = phase;
-  const coach = $('#coach');
-  const scanIcon = coach.querySelector('.coach__icon--scan');
-  const tapIcon = coach.querySelector('.coach__icon--tap');
-  const text = $('#coach-text');
-
-  if (phase === 'scanning') {
-    coach.classList.remove('is-hidden');
-    scanIcon.hidden = false;
-    tapIcon.hidden = true;
-    text.textContent = 'Mueve el celular despacio para detectar la superficie';
-  } else if (phase === 'ready') {
-    coach.classList.remove('is-hidden');
-    scanIcon.hidden = true;
-    tapIcon.hidden = false;
-    text.textContent = `Toca para colocar a ${guardian.name}`;
-  } else if (phase === 'placed') {
-    coach.classList.add('is-hidden');
-  }
+  $('#coach').classList.toggle('is-hidden', phase === 'tracking');
   document.body.dataset.phase = phase;
 }
 
-function maybeReady() {
-  if (state.phase !== 'scanning' || !state.modelTemplate) return;
-  const elapsed = state.videoAt ? performance.now() - state.videoAt : 0;
-  // Keep the scanning hint up briefly even when tracking is already good, so it can be read.
-  if ((state.trackingNormal && elapsed > MIN_SCAN_MS) || elapsed > READY_FALLBACK_MS) setPhase('ready');
-}
-
+/** "Reiniciar": undo the user's rotation and size; replay the entrance or the hint. */
 function resetScene() {
-  try { window.XR8.XrController.recenter(); } catch (err) { console.warn('[ancestrales] recenter failed', err); }
-  if (state.root) state.root.visible = false;
   state.userScale = 1;
-  state.appear = 1;
+  state.userRotation = 0;
+  applyUserRotation();
   applyScale();
-  $('#gesture-tip').hidden = true;
-  state.videoAt = performance.now();
-  setPhase('scanning');
+  if (state.phase === 'tracking') {
+    state.appear = 0;
+    appear();
+    showGestureTip();
+  } else {
+    $('#gesture-tip').hidden = true;
+    setPhase('searching');
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -651,14 +788,14 @@ function appModule() {
       } else if (status === 'hasStream') {
         $('#loading-text').textContent = 'Despertando al guardián…';
       } else if (status === 'hasVideo') {
-        state.videoAt = performance.now();
         showScreen('ar');
-        setPhase('scanning');
-        if (!state.modelTemplate) {
-          loadModel().then(maybeReady).catch(showModelError);
-        }
+        setPhase('searching');
+        loadModel().then(() => {
+          // The card may already be in view while the model was still downloading.
+          if (state.target.seen && state.phase !== 'tracking') appear();
+        }).catch(showModelError);
       } else if (status === 'failed') {
-        showPermissionDenied('camera');
+        showPermissionDenied();
       }
     },
     onUpdate: () => {
@@ -667,68 +804,52 @@ function appModule() {
       state.lastFrame = now;
 
       runTweens(now);
-      if (state.mixer && state.root && state.root.visible) state.mixer.update(dt);
+      if (!state.anchor || !state.anchor.visible) return;
+
+      followTarget(dt);
+      updateSpiritLight();
+      if (state.mixer) state.mixer.update(dt);
 
       // Gentle breathing of the glow ring once the guardian is standing.
-      if (state.ring && state.phase === 'placed' && tweens.size === 0) {
+      if (state.phase === 'tracking' && tweens.size === 0) {
         state.ring.material.opacity = 0.28 + 0.1 * Math.sin(now / 900);
       }
-
-      // Reticle at screen centre while looking for a spot.
-      if (state.reticle && (state.phase === 'scanning' || state.phase === 'ready')) {
-        if (now - state.lastReticleHit > RETICLE_HIT_INTERVAL_MS) {
-          state.lastReticleHit = now;
-          const p = hitSurface(0.5, 0.6);
-          state.reticle.visible = !!p && state.phase === 'ready';
-          if (p) state.reticle.position.copy(p).add(new THREE.Vector3(0, 0.002, 0));
-        }
-        state.reticle.rotation.y += dt * 0.6;
-      } else if (state.reticle) {
-        state.reticle.visible = false;
-      }
-
-      maybeReady();
     },
     onException: (err) => {
       console.error('[ancestrales] XR exception', err);
       if (err && err.type === 'permission') {
-        showPermissionDenied(err.permission);
+        showPermissionDenied();
         return;
       }
       showError({
         title: 'La realidad aumentada se detuvo',
-        paragraphs: ['Ocurrió un problema con la cámara o los sensores. Vuelve a intentarlo.'],
+        paragraphs: ['Ocurrió un problema con la cámara. Vuelve a intentarlo.'],
         action: { label: 'Reintentar', onClick: reload },
       });
     },
     listeners: [
       {
-        event: 'reality.trackingstatus',
+        event: 'reality.imageloading',
         process: ({ detail }) => {
-          console.info('[ancestrales] tracking:', detail.status, detail.reason);
-          state.trackingNormal = detail.status === 'NORMAL';
-          maybeReady();
+          console.info('[ancestrales] image targets loading:', (detail.imageTargets || []).map((t) => t.name).join(', '));
         },
       },
+      {
+        event: 'reality.imagescanning',
+        process: ({ detail }) => {
+          console.info('[ancestrales] image targets scanning:', (detail.imageTargets || []).map((t) => t.name).join(', '));
+        },
+      },
+      { event: 'reality.imagefound', process: onImageFound },
+      { event: 'reality.imageupdated', process: onImageUpdated },
+      { event: 'reality.imagelost', process: onImageLost },
     ],
   };
 }
 
-function showPermissionDenied(permission) {
+function showPermissionDenied() {
   try { window.XR8.stop(); } catch (_) { /* already stopped */ }
   const ios = /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  const motion = /motion|orientation/i.test(String(permission || ''));
-  if (motion) {
-    showError({
-      title: 'Necesitamos los sensores de movimiento',
-      paragraphs: [`Para que ${guardian.name} se quede quieto en su sitio mientras caminas, el navegador debe poder leer el movimiento del celular.`],
-      steps: ios
-        ? ['Abre Ajustes › Safari y activa «Movimiento y orientación».', 'Vuelve aquí y toca Reintentar; cuando lo pida, toca «Permitir».']
-        : ['Toca el ícono junto a la dirección de la página.', 'En Permisos, activa «Sensores de movimiento».', 'Toca Reintentar.'],
-      action: { label: 'Reintentar', onClick: reload },
-    });
-    return;
-  }
   showError({
     title: 'No pudimos abrir la cámara',
     paragraphs: [`Para ver a ${guardian.name} tienes que permitir el acceso a la cámara trasera. Revisa también que ninguna otra app la esté usando.`],
@@ -743,34 +864,25 @@ function showPermissionDenied(permission) {
 // Start
 // ---------------------------------------------------------------------------
 
-/** iOS 13+ only grants motion sensors from inside a user gesture, so ask right on the tap. */
-function requestMotionPermission() {
-  const asks = [];
-  [window.DeviceMotionEvent, window.DeviceOrientationEvent].forEach((Api) => {
-    if (Api && typeof Api.requestPermission === 'function') {
-      asks.push(Api.requestPermission().catch(() => 'denied'));
-    }
-  });
-  return Promise.all(asks);
-}
-
 function startAR(XR8) {
   if (state.phase !== 'idle') return;
   state.phase = 'starting';
 
-  const motion = requestMotionPermission(); // must be called synchronously inside the tap
   showScreen('loading');
   $('#loading-text').textContent = 'Abriendo la cámara…';
-
-  motion.then((results) => {
-    if (results.includes('denied')) console.warn('[ancestrales] motion permission denied');
-  });
 
   const canvas = $('#ar-canvas');
   bindGestures(canvas);
   $('#btn-reset').addEventListener('click', resetScene);
 
-  XR8.XrController.configure({ scale: 'responsive', disableWorldTracking: false });
+  // Image targets only, with world tracking (SLAM) off:
+  //  - the card may be held in the hand and moved; SLAM only helps content anchored to the room,
+  //  - the image tracker gets the whole CPU budget (higher, steadier frame rate on mid phones),
+  //  - no SLAM warm-up and no motion-sensor permission (one less iOS prompt that can fail).
+  XR8.XrController.configure({
+    disableWorldTracking: true,
+    imageTargetData: state.targetData,
+  });
   XR8.addCameraPipelineModules([
     XR8.GlTextureRenderer.pipelineModule(),
     XR8.Threejs.pipelineModule(),
@@ -801,7 +913,7 @@ function boot() {
       title: 'Guardián no encontrado',
       paragraphs: [
         `El código «${requestedKey}» no corresponde a ningún guardián de Ancestrales.`,
-        'Revisa que hayas escaneado el QR de tu figura.',
+        'Revisa que hayas escaneado el QR de tu tarjeta.',
       ],
       action: { label: 'Ver a El Mohán', onClick: () => { window.location.href = pageUrlFor('mohan'); } },
     });
@@ -821,6 +933,9 @@ function boot() {
   const btn = $('#btn-start');
   const status = $('#start-status');
 
+  state.targetDataPromise = loadTargetData();
+  state.targetDataPromise.catch(() => { /* reported below */ });
+
   waitForXR8(XR8_LOAD_TIMEOUT_MS).then((XR8) => {
     const compatible = XR8.XrDevice.isDeviceBrowserCompatible({ allowedDevices: XR8.XrConfig.device().MOBILE });
     if (!compatible) {
@@ -828,11 +943,14 @@ function boot() {
       return;
     }
     loadModel().catch(() => { /* reported once AR starts */ });
-    btn.disabled = false;
-    btn.querySelector('.btn__label').textContent = 'Iniciar AR';
-    status.textContent = 'Usa la cámara trasera. Funciona mejor con buena luz.';
-    btn.addEventListener('click', () => startAR(XR8), { once: true });
-    console.info('[ancestrales] XR8 ready', typeof XR8.version === 'function' ? XR8.version() : '');
+    state.targetDataPromise.then((data) => {
+      state.targetData = data;
+      btn.disabled = false;
+      btn.querySelector('.btn__label').textContent = 'Iniciar AR';
+      status.textContent = 'Ten a mano la tarjeta. Funciona mejor con buena luz.';
+      btn.addEventListener('click', () => startAR(XR8), { once: true });
+      console.info('[ancestrales] XR8 ready', typeof XR8.version === 'function' ? XR8.version() : '', '· targets', data.map((d) => d.name).join(', '));
+    }).catch(showTargetLoadError);
   }).catch((err) => {
     console.error('[ancestrales] XR8 failed to load', err);
     showEngineLoadError();

@@ -1,0 +1,23 @@
+{
+  "imagePath": "image-targets/mohan-card_luminance.jpg",
+  "metadata": null,
+  "name": "mohan-card",
+  "type": "PLANAR",
+  "properties": {
+    "left": 0,
+    "top": 0,
+    "width": 780,
+    "height": 1040,
+    "isRotated": false,
+    "originalWidth": 780,
+    "originalHeight": 1040
+  },
+  "resources": {
+    "originalImage": "mohan-card_original.jpg",
+    "croppedImage": "mohan-card_cropped.jpg",
+    "thumbnailImage": "mohan-card_thumbnail.jpg",
+    "luminanceImage": "mohan-card_luminance.jpg"
+  },
+  "created": 1793676528337,
+  "updated": 1793676528337
+}

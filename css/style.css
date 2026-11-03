@@ -70,8 +70,10 @@ a { color: var(--gold-light); text-underline-offset: 2px; }
 #ar-canvas {
   position: fixed;
   inset: 0;
-  width: 100%;
-  height: 100%;
+  /* !important: XR8.Threejs resizes the three.js renderer with inline pixel styles equal to the
+     drawing buffer (window size x devicePixelRatio), which would zoom the view by the DPR. */
+  width: 100% !important;
+  height: 100% !important;
   display: block;
   z-index: 0;
   touch-action: none;
@@ -342,15 +344,16 @@ body.is-ar #ar-canvas { visibility: visible; }
 
 .coach__icon { width: 64px; height: 64px; color: var(--bone); }
 .coach__icon svg { width: 100%; height: 100%; overflow: visible; }
-.coach__phone { animation: sway 2.4s ease-in-out infinite; transform-origin: 32px 40px; }
-@keyframes sway {
-  0%, 100% { transform: translateX(-9px) rotate(-6deg); }
-  50% { transform: translateX(9px) rotate(6deg); }
+/* The card drifts slightly, as if held in front of the camera; the viewfinder breathes around it. */
+.coach__card { animation: drift 2.8s ease-in-out infinite; transform-origin: 32px 32px; }
+@keyframes drift {
+  0%, 100% { transform: translate(-2px, 1px) rotate(-4deg); }
+  50% { transform: translate(2px, -1px) rotate(3deg); }
 }
-.coach__ripple { transform-origin: 32px 44px; animation: ripple 1.6s ease-out infinite; }
-@keyframes ripple {
-  from { transform: scale(0.4); opacity: 1; }
-  to { transform: scale(1.5); opacity: 0; }
+.coach__frame { animation: focus 2.8s ease-in-out infinite; transform-origin: 32px 32px; }
+@keyframes focus {
+  0%, 100% { transform: scale(1.06); opacity: 0.7; }
+  50% { transform: scale(0.96); opacity: 1; }
 }
 
 .coach__text {
