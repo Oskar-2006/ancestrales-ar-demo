@@ -5,15 +5,17 @@
 //   model        relative path to the .glb (relative paths keep GitHub Pages subpaths working)
 //   idleClip     name of the looping animation to play (falls back to the first clip)
 //   name/tagline user-facing text (Spanish)
-//   targets      image targets that make the guardian appear; all are tracked at once. The one with
-//                the highest priority in view wins; at equal priority the first one found stays.
+//   targets      image targets that anchor the guardian in the room; all are tracked at once. The
+//                first anchor prefers the highest priority (a lower one waits a moment for it);
+//                once anchored, the highest priority in view refines or moves the anchor.
 //                Per target:
 //     name          image target name; must equal "name" inside the target JSON
 //     data          relative path to the JSON written by tools/build_image_target.js
 //     heightOnCard  figure height as a multiple of the target's width (1 = as tall as it is wide),
 //                   so it fits a small printed QR and a full card alike
 //     footOffset    where the feet stand along the target's vertical axis, in target heights
-//                   (0 = centre, -0.5 = bottom edge, 0.5 = top edge)
+//                   (0 = centre, -0.5 = bottom edge, 0.5 = top edge). Used when the target lies
+//                   flat-ish; on a near-vertical target the guardian stands on its lowest edge.
 //     priority      higher wins when several targets are in view
 
 export const GUARDIANS = {

@@ -322,10 +322,18 @@ body.is-ar #ar-canvas { visibility: visible; }
 }
 .ar-badge svg { width: 28px; height: 28px; color: var(--gold); }
 
-.coach {
+/* Coach (before the first anchor) and the "se quedó aquí" toast share the same spot. */
+.ar-dock {
   align-self: center;
   margin-top: auto;
   margin-bottom: 14px;
+  display: grid;
+  justify-items: center;
+  align-items: end;
+}
+.ar-dock > * { grid-area: 1 / 1; }
+
+.coach {
   max-width: 320px;
   display: flex;
   flex-direction: column;
@@ -377,6 +385,53 @@ body.is-ar #ar-canvas { visibility: visible; }
   transition: opacity 400ms;
 }
 .gesture-tip.is-fading { opacity: 0; }
+
+.toast {
+  margin: 0;
+  max-width: 320px;
+  padding: 12px 18px;
+  border-radius: var(--radius);
+  background: rgba(14, 17, 13, 0.68);
+  border: 1px solid rgba(201, 162, 39, 0.35);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  font-size: 0.95rem;
+  font-weight: 550;
+  text-align: center;
+  text-wrap: balance;
+  color: var(--bone);
+  animation: toast-in 360ms var(--ease-out) both;
+  transition: opacity 400ms;
+}
+.toast.is-fading { opacity: 0; }
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* World tracking is struggling: a gentle note under the top bar. The guardian stays visible. */
+.tracking-hint {
+  align-self: center;
+  margin: 10px 0 0;
+  max-width: 320px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(14, 17, 13, 0.6);
+  border: 1px solid rgba(217, 136, 106, 0.35);
+  font-size: 0.85rem;
+  text-align: center;
+  color: var(--bone);
+  opacity: 0;
+  transform: translateY(-6px);
+  visibility: hidden;
+  transition: opacity 300ms var(--ease-out), transform 300ms var(--ease-out), visibility 0s linear 300ms;
+}
+.tracking-hint.is-visible {
+  opacity: 1;
+  transform: none;
+  visibility: visible;
+  transition: opacity 300ms var(--ease-out), transform 300ms var(--ease-out), visibility 0s;
+}
 
 /* ---------- Credits ---------- */
 
