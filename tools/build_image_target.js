@@ -2,8 +2,8 @@
 // Builds the 8th Wall image target for El Mohán.
 //
 // Target (loaded by the page; recognising it makes the guardian appear):
-//   mohan-qr    from qr/qr-mohan.png  (square QR incl. quiet zone), centred on a white
-//               3:4 canvas first, because 8th Wall image targets are always 3:4
+//   mohan-figura  from figura/mohan-figura.png (picture of El Mohán, 900x1200, already 3:4;
+//                 made by tools/build_figura.py). 8th Wall image targets are always 3:4.
 //
 // Output per target in image-targets/: <name>.json plus <name>_luminance.jpg (what XR8 actually
 // loads and tracks), <name>_cropped.jpg, <name>_thumbnail.jpg and <name>_original.jpg.
@@ -35,9 +35,9 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 const JPEG_QUALITY = 92
 
 // Target names must match js/guardians.js.
-//   pad3x4:    centre the source on a white 3:4 portrait canvas (as wide as the source)
+//   pad3x4:    (optional) centre a non-3:4 source on a white 3:4 portrait canvas (as wide as the source)
 const TARGETS = [
-  {name: 'mohan-qr', input: 'qr/qr-mohan.png', pad3x4: true},
+  {name: 'mohan-figura', input: 'figura/mohan-figura.png'},
 ]
 
 function parseArgs(argv) {

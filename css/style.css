@@ -352,8 +352,8 @@ body.is-ar #ar-canvas { visibility: visible; }
 
 .coach__icon { width: 64px; height: 64px; color: var(--bone); }
 .coach__icon svg { width: 100%; height: 100%; overflow: visible; }
-/* The QR drifts slightly, as if held in front of the camera; the viewfinder breathes around it. */
-.coach__card { animation: drift 2.8s ease-in-out infinite; transform-origin: 32px 32px; }
+/* The picture drifts slightly, as if held in front of the camera; the viewfinder breathes around it. */
+.coach__picture { animation: drift 2.8s ease-in-out infinite; transform-origin: 32px 32px; }
 @keyframes drift {
   0%, 100% { transform: translate(-2px, 1px) rotate(-4deg); }
   50% { transform: translate(2px, -1px) rotate(3deg); }

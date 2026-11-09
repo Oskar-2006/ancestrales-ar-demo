@@ -1,12 +1,21 @@
-# Generates card/mohan-card.svg. Original procedural art, fixed seed.
-import math, random, base64, sys
+# Generates the picture of El Mohan that the camera recognises (8th Wall image target):
+# figura/mohan-figura.png, 900 x 1200 px (3:4). Original procedural art, fixed seeds.
+#
+#   python tools/build_figura.py [out.svg] [out.png]
+#
+# Defaults: the SVG goes to the temp folder (it is not part of the site) and the PNG to
+# figura/mohan-figura.png. The PNG is rendered with sharp: set TOOL_DIR to the folder where
+# @8thwall/image-target-cli (and so sharp) is installed, as for tools/build_image_target.js.
+import math, random, sys, os, subprocess, tempfile
 
-QR = sys.argv[1]
-OUT = sys.argv[2]
-R = random.Random(7041)
+HERE = os.path.dirname(os.path.abspath(__file__))
+OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(tempfile.gettempdir(), 'mohan-figura.svg')
+PNG = sys.argv[2] if len(sys.argv) > 2 else os.path.join(HERE, '..', 'figura', 'mohan-figura.png')
+R = random.Random(7041)    # the stones, plants and medallion
+R2 = random.Random(5150)   # the lower-right scene (separate stream so the rest of the art stays as is)
 
-W, H = 660, 880          # 1 unit = 0.1 mm
-BL = 30                  # bleed area drawn around the card (3 mm)
+W, H = 660, 880          # SVG units, 3:4 (rendered at 900 x 1200 px)
+BL = 30                  # art is drawn this far past the edges (kept so the stones stay as in the approved art); the viewBox crops it
 
 GOLD, GOLD_L, GOLD_D = '#c9a227', '#e8c95e', '#8a6d14'
 MOSS, MOSS_L, MOSS_P, MOSS_D = '#5c8a4a', '#7fb86a', '#9cc28a', '#3b5c30'
@@ -49,7 +58,7 @@ def add(s): out.append(s)
 
 # ---------------------------------------------------------------- zones
 MED = (322, 274, 164)                   # medallion centre/radius (slightly left of centre)
-QRP = (378, 604, 248, 248)              # QR plate x, y, w, h  (QR itself 232 units = 23.2 mm)
+FILL = (378, 604, 248, 248)             # lower-right area filled by its own scene (see "lower-right scene")
 TITLE_Y = 516
 
 def in_rect(x, y, r, pad=0):
@@ -58,12 +67,10 @@ def in_rect(x, y, r, pad=0):
 
 # ---------------------------------------------------------------- header
 add(f'''<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
-     width="66mm" height="88mm" viewBox="0 0 {W} {H}">
-<!-- "El Mohan" collectible card / 8th Wall image target.
-     66 x 88 mm (3:4 portrait). 1 user unit = 0.1 mm.
-     Original art, generated procedurally (fixed seed) and hand-tuned; no third-party assets.
-     Fonts: generic system families only (serif / sans-serif).
-     To render the 3 mm bleed version use viewBox="-30 -30 720 940" (art extends into it). -->
+     width="{W}" height="{H}" viewBox="0 0 {W} {H}">
+<!-- Picture of "El Mohan" / 8th Wall image target. 3:4 portrait.
+     Original art, generated procedurally (fixed seeds) and hand-tuned; no third-party assets.
+     Fonts: generic system families only (serif / sans-serif). -->
 <defs>
   <!-- Soft green glow behind the medallion -->
   <radialGradient id="glow" cx="50%" cy="50%" r="50%">
@@ -90,10 +97,10 @@ add(f'''<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1
     <stop offset=".7" stop-color="#070906" stop-opacity=".7"/>
     <stop offset="1" stop-color="#070906" stop-opacity="0"/>
   </radialGradient>
-  <clipPath id="card"><rect x="{-BL}" y="{-BL}" width="{W+2*BL}" height="{H+2*BL}"/></clipPath>
+  <clipPath id="frame-clip"><rect x="{-BL}" y="{-BL}" width="{W+2*BL}" height="{H+2*BL}"/></clipPath>
   <clipPath id="medclip"><circle cx="{MED[0]}" cy="{MED[1]}" r="{MED[2]-26}"/></clipPath>
 </defs>
-<g clip-path="url(#card)">
+<g clip-path="url(#frame-clip)">
 <!-- Background: wet riverbed -->
 <rect x="{-BL}" y="{-BL}" width="{W+2*BL}" height="{H+2*BL}" fill="#0b0f0a"/>''')
 
@@ -139,14 +146,14 @@ add('</g>')
 add('<!-- Green glow around the medallion -->')
 add(f'<circle cx="{MED[0]}" cy="{MED[1]}" r="{MED[2]+95}" fill="url(#glow)"/>')
 
-add('<!-- River currents: flowing lines of different lengths and weights across the card -->')
+add('<!-- River currents: flowing lines of different lengths and weights across the picture -->')
 add('<g fill="none" stroke-linecap="round">')
 for i in range(26):
     y0 = R.uniform(40, H-40); x = R.uniform(-40, W-80)
     L = R.uniform(70, 230); amp = R.uniform(3, 9); ph = R.uniform(0, 6)
     pts = [(x + L*t/8, y0 + math.sin(ph + t*0.9)*amp + t*R.uniform(-1, 1.5)) for t in range(9)]
     if math.hypot(pts[4][0]-MED[0], pts[4][1]-MED[1]) < MED[2]+10: continue
-    if in_rect(pts[4][0], pts[4][1], QRP, 20) or abs(pts[4][1]-TITLE_Y) < 55: continue
+    if in_rect(pts[4][0], pts[4][1], FILL, 20) or abs(pts[4][1]-TITLE_Y) < 55: continue
     col = R.choice([MOSS_P, MOSS_L, '#b9b3a3', MOSS])
     add(f'<path d="{smooth_open(pts)}" stroke="{col}" stroke-width="{f(R.uniform(1.4, 3.2))}" opacity="{f(R.uniform(.55, .9))}"/>')
 add('</g>')
@@ -337,6 +344,41 @@ add(fish(232, 806, 40, 3.4, MOSS_P))
 add(fish(70, 800, 28, 0.6, '#e2c35a'))
 add('</g>')
 
+
+# ---------------------------------------------------------------- lower-right scene
+# Fills the lower-right corner with the same river vocabulary (lily pads, fish, reeds, ripples, a fern).
+# Uses its own random stream (R2) so nothing else in the picture changes.
+def pad(x, y, r, rot, col):
+    a0, a1 = 0.28, -0.28
+    p0 = (math.cos(a0)*r, math.sin(a0)*r); p1 = (math.cos(a1)*r, math.sin(a1)*r)
+    veins = ''.join(f'<path d="M0 0L{f(math.cos(t)*r*.86)} {f(math.sin(t)*r*.86)}" stroke="#0b0f0a" stroke-width="1.2" opacity=".6"/>'
+                    for t in (0.9, 1.9, 2.9, 3.9, 4.9, 5.7))
+    return (f'<g transform="translate({f(x)} {f(y)}) rotate({f(math.degrees(rot))}) scale(1 .62)">'
+            f'<path d="M0 0L{f(p0[0])} {f(p0[1])}A{f(r)} {f(r)} 0 1 1 {f(p1[0])} {f(p1[1])}Z" fill="{col}" stroke="#070906" stroke-width="2.4"/>'
+            f'{veins}<path d="M{f(r*.2)} {f(-r*.8)}A{f(r*.82)} {f(r*.82)} 0 0 0 {f(-r*.78)} {f(-r*.2)}" fill="none" stroke="#c4d9a8" stroke-width="2" stroke-linecap="round" opacity=".8"/></g>')
+
+R_main, R = R, R2
+add('<!-- Lower-right scene: lily pads, fish, ripples, reeds and a fern in the corner -->')
+add('<g id="scene-right">')
+for cx, cy, k in [(520, 705, 4), (452, 780, 3), (575, 812, 3), (610, 650, 2)]:
+    for j in range(k):
+        rx = 12 + j*R.uniform(10, 15); ry = rx*0.36
+        a0 = R.uniform(0, 1.8); a1 = a0 + R.uniform(2.4, 4.2)
+        p0 = (cx + math.cos(a0)*rx, cy + math.sin(a0)*ry); p1 = (cx + math.cos(a1)*rx, cy + math.sin(a1)*ry)
+        add(f'<path d="M{f(p0[0])} {f(p0[1])}A{f(rx)} {f(ry)} 0 {1 if a1-a0 > math.pi else 0} 1 {f(p1[0])} {f(p1[1])}" fill="none" stroke="{R.choice([MOSS_P, BONE, MOSS_L])}" stroke-width="{f(2.3 - j*0.35)}" opacity=".85"/>')
+for x, y, r, rot, col in [(470, 676, 30, 0.5, MOSS), (560, 752, 36, 3.5, MOSS_L), (428, 836, 24, 2.1, '#4d7a3d'), (604, 640, 20, 5.2, MOSS), (410, 722, 18, 4.4, MOSS_P)]:
+    add(pad(x, y, r, rot, col))
+add(fish(486, 780, 62, 2.95, '#c9a227'))
+add(fish(596, 700, 36, -0.4, MOSS_P))
+add(fish(534, 842, 26, 0.35, '#e2c35a'))
+for x in [586, 600, 616, 628]:
+    add(reed(x + R.uniform(-3, 3), 856, R.uniform(70, 150), R.uniform(-34, -6), R.choice([MOSS, MOSS_L, '#a7c94f', MOSS_D])))
+add(fern(636, 760, 2.7, 120, MOSS_P, 9))
+for _ in range(11):
+    add(f'<circle cx="{f(R.uniform(400, 625))}" cy="{f(R.uniform(612, 850))}" r="{f(R.uniform(1.3, 3.2))}" fill="none" stroke="{BONE}" stroke-width="1.2" opacity=".7"/>')
+add('</g>')
+R = R_main
+
 # ---------------------------------------------------------------- title cartouche
 add('<!-- Title area: dark veil so the gold lettering keeps contrast -->')
 add(f'<ellipse cx="{W/2}" cy="{TITLE_Y-8}" rx="270" ry="72" fill="url(#veil)"/>')
@@ -363,7 +405,7 @@ def edge_glyphs(x0, y0, x1, y1, normal_deg):
     L = math.hypot(x1-x0, y1-y0); t = R.uniform(10, 30)
     while t < L - 10:
         x = x0 + (x1-x0)*t/L; y = y0 + (y1-y0)*t/L
-        if not in_rect(x, y, QRP, 14):
+        if not in_rect(x, y, FILL, 14):
             k = R.choice(kinds)
             tr = f'transform="translate({f(x)} {f(y)}) rotate({normal_deg})"'
             if k == 'diamond': g = '<path d="M0 -5L3 0L0 5L-3 0Z" fill="#e2c35a"/>'
@@ -396,22 +438,25 @@ add(f'<g transform="translate(48 {H-50})"><path d="M8 -18a20 20 0 1 0 0 36a15 15
     '<circle cx="18" cy="-14" r="2.2" fill="#ece6d6"/><circle cx="24" cy="2" r="1.6" fill="#ece6d6"/></g>')
 
 # ---------------------------------------------------------------- top labels
-add('<!-- Header: brand label (left) and card number (right) -->')
+add('<!-- Header: brand label (left) -->')
 add(f'<text x="84" y="62" font-family="serif" font-weight="700" font-size="21" letter-spacing="5.5" fill="#e2c35a" stroke="#070906" stroke-width="4" paint-order="stroke">ANCESTRALES</text>')
-add(f'<text x="{W-88}" y="62" text-anchor="end" font-family="serif" font-style="italic" font-size="20" fill="{BONE}" stroke="#070906" stroke-width="4" paint-order="stroke">Nº 01</text>')
 add(f'<text x="84" y="86" font-family="sans-serif" font-size="13" letter-spacing="2" fill="#9cc28a" stroke="#070906" stroke-width="3" paint-order="stroke">LEYENDAS DE COLOMBIA</text>')
 
-# ---------------------------------------------------------------- QR plate
-qx, qy, qw, qh = QRP
-b64 = base64.b64encode(open(QR, 'rb').read()).decode()
-add('<!-- QR plate: pure black/white QR with its own quiet zone, unrotated, on a white rounded plate -->')
-add(f'<rect x="{qx-7}" y="{qy-7}" width="{qw+14}" height="{qh+14}" rx="20" fill="#070906" stroke="url(#gold)" stroke-width="4"/>')
-add(f'<rect x="{qx}" y="{qy}" width="{qw}" height="{qh}" rx="14" fill="#ffffff"/>')
-add(f'<image x="{qx+8}" y="{qy+8}" width="{qw-16}" height="{qh-16}" style="image-rendering:pixelated" preserveAspectRatio="none" '
-    f'href="data:image/png;base64,{b64}" xlink:href="data:image/png;base64,{b64}"/>')
-add(f'<text transform="translate({qx-22} {qy+qh}) rotate(-90)" font-family="sans-serif" font-weight="700" font-size="14" letter-spacing="2.2" fill="{BONE}" stroke="#070906" stroke-width="4" paint-order="stroke">ESCANÉAME</text>')
-add(f'<path d="M{qx-30} {qy+qh-112}v-18l-5 6m5 -6l5 6" fill="none" stroke="#e2c35a" stroke-width="2" stroke-linecap="round" transform="rotate(90 {qx-30} {qy+qh-121})"/>')
 add('</g>')
 add('</svg>')
-open(OUT, 'w').write('\n'.join(out))
-print('stones', len(stones))
+open(OUT, 'w', encoding='utf-8').write('\n'.join(out))
+print('stones', len(stones), '->', OUT)
+
+# ---------------------------------------------------------------- render PNG (900 x 1200)
+# Rendered with sharp (librsvg), the same build-time tool tools/build_image_target.js uses; it lives
+# outside the repo (see that script's header). Pass its folder with TOOL_DIR or IMAGE_TARGET_CLI_DIR.
+tool_dir = os.environ.get('TOOL_DIR') or os.environ.get('IMAGE_TARGET_CLI_DIR')
+if not tool_dir:
+    sys.exit('SVG written. To make the PNG set TOOL_DIR to the folder with sharp installed '
+             '(see tools/build_image_target.js) and run again.')
+os.makedirs(os.path.dirname(os.path.abspath(PNG)), exist_ok=True)
+js = ("const {createRequire}=require('module');"
+      "const sharp=createRequire(process.argv[1]+'/package.json')('sharp');"
+      "sharp(process.argv[2],{density:96*900/660}).resize(900,1200).png({compressionLevel:9}).toFile(process.argv[3])"
+      ".then(()=>console.log('PNG ->',process.argv[3]));")
+subprocess.run(['node', '-e', js, os.path.abspath(tool_dir), os.path.abspath(OUT), os.path.abspath(PNG)], check=True)

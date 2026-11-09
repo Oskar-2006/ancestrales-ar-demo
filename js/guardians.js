@@ -1,5 +1,6 @@
-// Guardian catalogue. The QR code that opens index.html?guardian=<key> is also the image target:
-// the camera looks for that same QR to stand the guardian on.
+// Guardian catalogue. The page opens from a plain link (index.html?guardian=<key>; without the
+// parameter it opens DEFAULT_GUARDIAN). The camera then looks for the guardian's picture
+// (figura/<name>.png, shown on a screen or printed): that picture is the image target.
 // To add a guardian: export its .glb into assets/, build its image target with
 // tools/build_image_target.js, and add an entry here.
 //   model        relative path to the .glb (relative paths keep GitHub Pages subpaths working)
@@ -10,12 +11,12 @@
 //     title         large heading (gold)
 //     subtitle      line under the title (italic)
 //     paragraphs    array of strings, one per paragraph
-//   targets      image targets that anchor the guardian in the room (today one QR per guardian);
+//   targets      image targets that anchor the guardian in the room (today one picture per guardian);
 //                the guardian appears on the first one recognised. Per target:
 //     name          image target name; must equal "name" inside the target JSON
 //     data          relative path to the JSON written by tools/build_image_target.js
-//     heightOnTarget  figure height as a multiple of the target's width (3 = three times as tall
-//                   as the target is wide), so the figure scales with the printed QR
+//     heightOnTarget  figure height as a multiple of the target's width (2 = twice as tall as the
+//                   picture is wide, i.e. 1.5x its 3:4 height), so the figure scales with the picture
 //     footOffset    where the feet stand along the target's vertical axis, in target heights
 //                   (0 = centre, -0.5 = bottom edge, 0.5 = top edge). Used when the target lies
 //                   flat-ish; on a near-vertical target the guardian stands on its lowest edge.
@@ -36,8 +37,8 @@ export const GUARDIANS = {
       ],
     },
     targets: [
-      // The QR alone (centred on a white 3:4 canvas, so the target's width = the QR's width).
-      { name: 'mohan-qr', data: 'image-targets/mohan-qr.json', heightOnTarget: 3, footOffset: 0 },
+      // figura/mohan-figura.png (3:4, built by tools/build_figura.py): the target's width = the picture's width.
+      { name: 'mohan-figura', data: 'image-targets/mohan-figura.json', heightOnTarget: 2, footOffset: 0 },
     ],
   },
 };

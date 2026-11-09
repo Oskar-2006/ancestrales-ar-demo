@@ -1,0 +1,23 @@
+{
+  "imagePath": "image-targets/mohan-figura_luminance.jpg",
+  "metadata": null,
+  "name": "mohan-figura",
+  "type": "PLANAR",
+  "properties": {
+    "left": 0,
+    "top": 0,
+    "width": 900,
+    "height": 1200,
+    "isRotated": false,
+    "originalWidth": 900,
+    "originalHeight": 1200
+  },
+  "resources": {
+    "originalImage": "mohan-figura_original.jpg",
+    "croppedImage": "mohan-figura_cropped.jpg",
+    "thumbnailImage": "mohan-figura_thumbnail.jpg",
+    "luminanceImage": "mohan-figura_luminance.jpg"
+  },
+  "created": 1794190856663,
+  "updated": 1794190856663
+}

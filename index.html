@@ -55,7 +55,7 @@
         <p class="eyebrow">Ancestrales</p>
         <h1 class="title" data-bind="guardian-name">El Mohán</h1>
         <p class="subtitle" data-bind="guardian-tagline">Guardián de las aguas</p>
-        <p class="lead">Apunta la cámara al código QR: el guardián aparecerá sobre él y se quedará ahí aunque te muevas.</p>
+        <p class="lead">Apunta la cámara a la imagen de <span data-bind="guardian-name">El Mohán</span>: el guardián aparecerá sobre ella y se quedará ahí aunque te muevas.</p>
         <button class="btn btn--primary" id="btn-start" type="button" disabled>
           <span class="btn__label">Preparando…</span>
         </button>
@@ -106,7 +106,7 @@
 
       <div class="ar-dock">
         <div class="coach" id="coach" aria-live="polite">
-          <!-- Hand-drawn QR code inside a camera viewfinder. -->
+          <!-- Hand-drawn camera viewfinder around a river medallion with an eye (the picture to find). -->
           <div class="coach__icon" aria-hidden="true">
             <svg viewBox="0 0 64 64">
               <g class="coach__frame" fill="none" stroke="var(--moss-light)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -115,30 +115,15 @@
                 <path d="M54.6 47.4 V54 Q54.6 54.9 53.6 54.9 H46.8"/>
                 <path d="M17.2 55 H10.3 Q9.4 55 9.4 54 V47.2"/>
               </g>
-              <g class="coach__card">
-                <rect x="18.5" y="18.5" width="27" height="27" rx="2.6" fill="rgba(14,17,13,.35)" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/>
-                <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
-                  <rect x="22" y="22" width="7" height="7" rx=".8"/>
-                  <rect x="35" y="22" width="7" height="7" rx=".8"/>
-                  <rect x="22" y="35" width="7" height="7" rx=".8"/>
-                </g>
-                <g fill="var(--gold)" opacity=".9">
-                  <rect x="24.2" y="24.2" width="2.6" height="2.6"/>
-                  <rect x="37.2" y="24.2" width="2.6" height="2.6"/>
-                  <rect x="24.2" y="37.2" width="2.6" height="2.6"/>
-                </g>
-                <g fill="currentColor" opacity=".8">
-                  <rect x="31.4" y="22.4" width="2.6" height="2.6"/>
-                  <rect x="31.4" y="31.4" width="2.6" height="2.6"/>
-                  <rect x="36" y="32" width="2.6" height="2.6"/>
-                  <rect x="31.4" y="36" width="2.6" height="2.6"/>
-                  <rect x="36.4" y="37" width="5.6" height="2.6"/>
-                  <rect x="22.4" y="31.4" width="2.6" height="2.6"/>
-                </g>
+              <g class="coach__picture">
+                <circle cx="32" cy="32" r="14" fill="rgba(14,17,13,.35)" stroke="currentColor" stroke-width="2.2"/>
+                <path d="M21.5 31 Q32 22 42.5 31 Q32 39 21.5 31 Z" fill="none" stroke="var(--gold)" stroke-width="1.8" stroke-linejoin="round"/>
+                <circle cx="32" cy="31" r="2.6" fill="var(--gold)"/>
+                <path d="M22 40 q2.5 -2.4 5 0 t5 0 t5 0 t5 0" fill="none" stroke="var(--moss-light)" stroke-width="1.6" stroke-linecap="round"/>
               </g>
             </svg>
           </div>
-          <p class="coach__text" id="coach-text">Apunta la cámara al código QR de <span data-bind="guardian-name">El Mohán</span></p>
+          <p class="coach__text" id="coach-text">Apunta la cámara a la imagen de <span data-bind="guardian-name">El Mohán</span></p>
         </div>
 
         <!-- Opens the reader; shown while the 3D panel is up. -->

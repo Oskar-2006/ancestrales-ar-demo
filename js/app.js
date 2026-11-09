@@ -1,4 +1,4 @@
-// Ancestrales AR — the guardian appears on its printed QR code (8th Wall image target) and stays
+// Ancestrales AR — the guardian appears on a picture of El Mohán (8th Wall image target, shown on a screen or printed) and stays
 // anchored in the room (8th Wall world tracking / SLAM), rendered with three.js. A floating lore
 // panel beside it (a billboard in the scene) opens an on-screen reader.
 //
@@ -18,7 +18,7 @@
 //   4. With SLAM on, image target poses arrive in the same world space as the camera. The first
 //      'reality.imagefound' turns the target pose into a world anchor and the guardian appears
 //      there. While the target stays in view ('imageupdated') the anchor is refined; when the user
-//      points at the QR again somewhere else, the guardian glides to the new spot.
+//      points at the picture again somewhere else, the guardian glides to the new spot.
 //      'imagelost' does not touch the guardian: SLAM keeps it fixed while the user walks around.
 //   5. ?preview=1 skips XR8 and the camera: the same scene is rendered by a plain three.js
 //      renderer with a fixed camera, and a synthetic target pose feeds the same anchoring code.
@@ -46,7 +46,7 @@ const CAMERA_START_HEIGHT = 1.5;
 // Anchor refinement: exponential approach to the latest target pose. 20/s is a ~50 ms time
 // constant: it removes frame-to-frame jitter without a visible lag.
 const SMOOTHING_RATE = 20;
-// Re-anchoring: when the QR is seen far from where the guardian stands (it was moved, or SLAM
+// Re-anchoring: when the picture is seen far from where the guardian stands (it was moved, or SLAM
 // drifted), the guardian glides there with a slower ~200 ms time constant instead of jumping.
 const GLIDE_RATE = 5;
 const REANCHOR_DISTANCE = 0.35; // in figure heights
@@ -69,7 +69,7 @@ const APPEAR_MS = 700;
 const DISAPPEAR_MS = 300;
 
 // Lore panel: a 3D billboard to the camera's right of the guardian. Sizes are in figure heights
-// (the guardian is scaled from the QR width, so the panel follows the QR size and the pinch).
+// (the guardian is scaled from the picture's width, so the panel follows the picture's size and the pinch).
 const PANEL_CANVAS_WIDTH = 1024; // fixed texture resolution, whatever the screen's pixel ratio
 const PANEL_WIDTH_IN_HEIGHTS = 1.1;
 const PANEL_SIDE_GAP = 0.3; // from the figure's axis to the panel's near edge
@@ -84,9 +84,9 @@ const READER_FADE_MS = 240;
 const FONT_DISPLAY = '"Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif';
 const FONT_BODY = 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
 
-// Preview mode (?preview=1): where the fixed camera looks, and the fake QR pose it stands on.
+// Preview mode (?preview=1): where the fixed camera looks, and the fake target pose it stands on.
 const PREVIEW_FOV = 40;
-const PREVIEW_QR_SCALE = 0.4; // fake target height in world units (width = 0.75 of it) -> a 0.9 tall figure (3 x its width)
+const PREVIEW_TARGET_SCALE = 0.6; // fake target height in world units (width = 0.75 of it) -> a 0.9 tall figure (2 x its width)
 
 const AXIS_X = new THREE_NS.Vector3(1, 0, 0);
 const AXIS_Y = new THREE_NS.Vector3(0, 1, 0);
@@ -182,8 +182,8 @@ function showDesktopNotice() {
   showError({
     title: 'Ábrelo en tu celular',
     paragraphs: [
-      `Esta experiencia usa la cámara trasera y los sensores de movimiento de un celular para encontrar el código QR de ${guardian ? guardian.name : 'tu guardián'}.`,
-      'Escanea su código QR con el teléfono o abre este enlace en él:',
+      `Esta experiencia usa la cámara trasera y los sensores de movimiento de un celular para reconocer la imagen de ${guardian ? guardian.name : 'tu guardián'}.`,
+      'Abre este enlace en el teléfono:',
     ],
     url: window.location.href,
   });
@@ -261,8 +261,8 @@ const targetConfig = (name) => guardian.targets.find((t) => t.name === name) || 
 function showTargetLoadError(err) {
   console.error('[ancestrales] image target failed to load', err);
   showError({
-    title: 'No se pudo preparar el código QR',
-    paragraphs: ['Faltan los datos para reconocer el código QR. Revisa tu conexión y vuelve a intentarlo.'],
+    title: 'No se pudo preparar la imagen',
+    paragraphs: ['Faltan los datos para reconocer la imagen de El Mohán. Revisa tu conexión y vuelve a intentarlo.'],
     action: { label: 'Reintentar', onClick: reload },
   });
 }
@@ -444,7 +444,7 @@ function buildGuardian() {
   anchor.visible = false;
 
   // Key light lives in the anchor's frame: light comes from above and in front of the figure,
-  // whatever the angle of the QR it stands on.
+  // whatever the angle of the picture it stands on.
   const key = new THREE.DirectionalLight(0xfff0d2, 2.2);
   key.position.set(0.8, 2, 1.4);
   anchor.add(key);
@@ -1351,8 +1351,8 @@ function resetScene() {
   hideMessage($('#anchor-toast'));
   hideMessage($('#gesture-tip'));
   setPhase('searching');
-  // A QR still in view re-anchors once the vanish has played (imageupdated keeps coming while
-  // it moves; the timer covers a QR held perfectly still).
+  // A picture still in view re-anchors once the vanish has played (imageupdated keeps coming while
+  // it moves; the timer covers a picture held perfectly still).
   state.resetUntil = performance.now() + RESET_COOLDOWN_MS;
   clearTimeout(state.resetTimer);
   state.resetTimer = setTimeout(updateFromDetections, RESET_COOLDOWN_MS + 20);
@@ -1408,7 +1408,7 @@ function updateFrame() {
   }
 }
 
-/** Calls spawnGuardian once the model is in, if the QR was already anchored while it downloaded. */
+/** Calls spawnGuardian once the model is in, if the picture was already anchored while it downloaded. */
 function spawnWhenModelReady() {
   loadModel().then(() => {
     if (state.anchored && (!state.anchor || !state.anchor.visible)) spawnGuardian();
@@ -1546,12 +1546,12 @@ function startAR(XR8) {
   const canvas = $('#ar-canvas');
   bindArControls(canvas);
 
-  // World tracking (SLAM) together with image targets: the QR only places the guardian; SLAM
-  // then keeps it fixed in the room even when the QR leaves the view.
+  // World tracking (SLAM) together with image targets: the picture only places the guardian; SLAM
+  // then keeps it fixed in the room even when the picture leaves the view.
   // scale 'responsive' (the default) is the one that works with image targets in any space: units
   // follow CAMERA_START_HEIGHT and the target's pose/scale come in those same units. 'absolute'
   // (metric) needs an extra calibration walk and adds nothing here, since the guardian is sized
-  // from the QR anyway.
+  // from the picture's width anyway.
   XR8.XrController.configure({
     disableWorldTracking: false,
     scale: 'responsive',
@@ -1583,7 +1583,7 @@ function startAR(XR8) {
 
 // ---------------------------------------------------------------------------
 // Preview mode (?preview=1): no XR8, no camera. The same scene on a dark gradient, a fixed camera
-// and a synthetic QR pose that goes through the normal anchoring code.
+// and a synthetic target pose that goes through the normal anchoring code.
 // ---------------------------------------------------------------------------
 
 /** Sizes the renderer and places the fixed camera so the guardian and its panel are both in view. */
@@ -1600,7 +1600,7 @@ function framePreviewCamera() {
   // Figure plus panel span about 1.8 figure heights across: on a portrait phone that is ~50 % of
   // the width; on a desktop window the height limit leaves room below for the "Leer historia" button.
   // The look-at point sits below the pair's centre so the pair rides a little above the middle.
-  const figure = PREVIEW_QR_SCALE * 0.75 * guardian.targets[0].heightOnTarget;
+  const figure = PREVIEW_TARGET_SCALE * 0.75 * guardian.targets[0].heightOnTarget;
   const needW = 3.4 * figure;
   const needH = 2.4 * figure;
   const halfTan = Math.tan(THREE.MathUtils.degToRad(PREVIEW_FOV) / 2);
@@ -1611,14 +1611,14 @@ function framePreviewCamera() {
   camera.lookAt(target);
 }
 
-/** The pose XR8 would report for a QR lying flat on the floor with its top edge away from the camera. */
+/** The pose XR8 would report for the picture lying flat on the floor with its top edge away from the camera. */
 function previewDetection() {
   const q = new THREE.Quaternion().setFromAxisAngle(AXIS_X, -Math.PI / 2);
   return {
     name: guardian.targets[0].name,
     position: { x: 0, y: 0, z: 0 },
     rotation: { x: q.x, y: q.y, z: q.z, w: q.w },
-    scale: PREVIEW_QR_SCALE,
+    scale: PREVIEW_TARGET_SCALE,
     scaledWidth: 3,
     scaledHeight: 4,
   };
@@ -1663,8 +1663,8 @@ function boot() {
     showError({
       title: 'Guardián no encontrado',
       paragraphs: [
-        `El código «${requestedKey}» no corresponde a ningún guardián de Ancestrales.`,
-        'Revisa que hayas escaneado bien el código QR.',
+        `La clave «${requestedKey}» no corresponde a ningún guardián de Ancestrales.`,
+        'Revisa que el enlace esté completo.',
       ],
       action: { label: 'Ver a El Mohán', onClick: () => { window.location.href = pageUrlFor('mohan'); } },
     });
@@ -1707,7 +1707,7 @@ function boot() {
       state.targetData = data;
       btn.disabled = false;
       btn.querySelector('.btn__label').textContent = 'Iniciar AR';
-      status.textContent = 'Ten a mano el código QR. Funciona mejor con buena luz.';
+      status.textContent = 'Ten a mano la imagen de El Mohán (en otra pantalla o impresa). Funciona mejor con buena luz.';
       btn.addEventListener('click', () => startAR(XR8), { once: true });
       console.info('[ancestrales] XR8 ready', typeof XR8.version === 'function' ? XR8.version() : '', '· targets', data.map((d) => d.name).join(', '));
     }).catch(showTargetLoadError);
