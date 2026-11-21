@@ -1,0 +1,21 @@
+{
+  "imagePath": "image-targets/hombrecaiman-figura_luminance.jpg",
+  "metadata": null,
+  "name": "hombrecaiman-figura",
+  "type": "PLANAR",
+  "properties": {
+    "left": 0,
+    "top": 0,
+    "width": 768,
+    "height": 1024,
+    "isRotated": false,
+    "originalWidth": 768,
+    "originalHeight": 1024
+  },
+  "resources": {
+    "originalImage": "hombrecaiman-figura_original.jpg",
+    "croppedImage": "hombrecaiman-figura_cropped.jpg",
+    "thumbnailImage": "hombrecaiman-figura_thumbnail.jpg",
+    "luminanceImage": "hombrecaiman-figura_luminance.jpg"
+  }
+}

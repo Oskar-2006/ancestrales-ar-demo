@@ -1,20 +1,12 @@
 # Créditos
 
-## Trabajo original del proyecto Ancestrales
-
-- **Código**: `index.html`, `css/style.css`, `js/app.js`, `js/guardians.js`, `tools/build_image_target.js` y `tools/build_figura.py`. El anclaje a la imagen, los gestos, el panel flotante de historia (dibujado en un lienzo y puesto en la escena 3D), el lector en pantalla, la vista previa `?preview=1`, las pantallas de carga, permisos y error, y el ajuste del lienzo están escritos para este proyecto; no se usó código de ejemplo de terceros.
-- **Imagen de El Mohán**: el arte de `figura/` (medallón del río, marco, piedras y hojas) es del proyecto, dibujado por código con `tools/build_figura.py` (semillas fijas, sin recursos de terceros). Es lo que la cámara reconoce; los archivos de `image-targets/` se generan a partir de ella.
-- **Texto de historia**: los textos de El Mohán (`lore` en `js/guardians.js`) son del proyecto.
-- **Modelo 3D**: `assets/mohan-prueba.glb` (El Mohán, con su animación `Idle`).
-- **Interfaz y gráficos**: emblema, iconos y fondos hechos a mano en SVG y CSS. La sombra de contacto, el anillo de luz bajo el guardián y el panel de historia (fondo, borde dorado, rombo y botón) se dibujan por código; el lector es HTML y CSS propios. No se usan imágenes, fuentes, iconos ni sonidos de terceros; los textos usan las fuentes del sistema.
-
-## Herramientas de terceros
+Los modelos proceden de los archivos de Blender aportados por el equipo. Los objetivos de reconocimiento son renders de esos personajes. El catálogo conserva las historias del proyecto. La integración de cámara, gestos, lector y panel 3D se desarrolló para este demo.
 
 ### Motor de AR: 8th Wall (Distributed Engine Binary 1.0.0)
 
 - Autor: **Niantic Spatial, Inc.** © 2026 Niantic Spatial, Inc. Todos los derechos reservados.
 - Licencia: *XR Engine License Agreement*. Texto completo en [`vendor/8thwall/LICENSE`](vendor/8thwall/LICENSE).
-- Uso: cámara y rastreo de imágenes (*image targets*) para reconocer la imagen de El Mohán. Se distribuye en `vendor/8thwall/` en su forma original, sin modificaciones, como permite la sección 1.1 de la licencia.
+- Uso: cámara y rastreo de imágenes (*image targets*) para reconocer los renders de los personajes. Se distribuye en `vendor/8thwall/` en su forma original, sin modificaciones, como permite la sección 1.1 de la licencia.
 - El software se ofrece «tal cual» (*as is*), sin garantías de ningún tipo, según la sección 4 de la licencia.
 - La licencia prohíbe usarlo en productos de pago cuyo valor dependa sobre todo del motor. Este es un proyecto académico gratuito. El uso del motor no implica que Niantic Spatial patrocine ni respalde el proyecto.
 
@@ -24,13 +16,10 @@
 - Licencia: **MIT**. Texto en [`vendor/three/LICENSE`](vendor/three/LICENSE).
 - Archivos usados sin modificar: `build/three.module.min.js`, `examples/jsm/loaders/GLTFLoader.js` y `examples/jsm/utils/BufferGeometryUtils.js`.
 
-### Herramientas de construcción (no se distribuyen con la página)
+Los recursos de seguimiento se preparan con Node.js y sharp (Apache 2.0). El navegador carga los recursos ya generados.
 
-Se usan solo en el computador para generar `image-targets/` con `tools/build_image_target.js`. No están en el repositorio ni la página las carga.
+## Modelos y relatos
 
-- **@8thwall/image-target-cli** 1.0.0. Autor: 8th Wall Team. Licencia **MIT**. Genera los datos de los image targets (recorte, miniatura e imagen de luminancia).
-- **sharp** 0.34 (dependencia de la anterior). Autores: Lovell Fuller y colaboradores. Licencia **Apache 2.0**. Procesa las imágenes; incluye binarios de libvips (LGPL 3.0).
+Los archivos de origen son MOHÁN FINAL.blend, los modelos de Patasola_finalVer y Hojarazquin, madremonte.blend, Hombre Caimanblend.blend y las tres mallas de Atacantes.blend. Los GLB son versiones estáticas para esta experiencia. El Mohán conserva la geometría del archivo entregado y utiliza materiales de respaldo porque faltan sus mapas externos.
 
-El panel y el lector no añaden nada de terceros: no hay librerías, fuentes, iconos ni imágenes nuevas.
-
-La página muestra estos créditos en la pantalla de inicio y, en versión corta, durante la experiencia AR.
+El relato del Hombre Caimán recupera la Ciénaga subterránea del borrador grupal de Ancestrales. Los tres microrrelatos de las Criaturas del Olvido son **(propuesta)** para el demo AR, escritos a partir del propósito definido por Oskar.

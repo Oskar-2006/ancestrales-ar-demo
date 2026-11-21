@@ -6,7 +6,7 @@ bounds, 4-byte alignment, accessor bounds, POSITION min/max correctness,
 index ranges, animation samplers (input/output counts, monotonic times),
 node references. Prints a summary (triangles, nodes, materials, bbox).
 
-Usage: python3 tools/check_glb.py assets/mohan-prueba.glb
+Usage: python3 tools/check_glb.py assets/mohan.glb
 """
 
 import json
@@ -244,4 +244,4 @@ def report(summary, path, data):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1] if len(sys.argv) > 1 else "assets/mohan-prueba.glb"))
+    sys.exit(main(sys.argv[1] if len(sys.argv) > 1 else "assets/mohan.glb"))

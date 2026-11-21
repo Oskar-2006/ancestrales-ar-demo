@@ -3,9 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <link rel="icon" href="data:,">
   <meta name="theme-color" content="#121611">
   <meta name="color-scheme" content="dark">
-  <meta name="description" content="Ancestrales: invoca a los guardianes de las leyendas colombianas en realidad aumentada.">
+  <meta name="description" content="Ancestrales: descubre a los personajes de El último recuerdo en realidad aumentada.">
   <title>Ancestrales AR</title>
   <link rel="stylesheet" href="css/style.css">
 
@@ -53,9 +54,9 @@
       <div class="hero">
         <svg class="emblem" aria-hidden="true"><use href="#emblem"/></svg>
         <p class="eyebrow">Ancestrales</p>
-        <h1 class="title" data-bind="guardian-name">El Mohán</h1>
-        <p class="subtitle" data-bind="guardian-tagline">Guardián de las aguas</p>
-        <p class="lead">Apunta la cámara a la imagen de <span data-bind="guardian-name">El Mohán</span>: el guardián aparecerá sobre ella y se quedará ahí aunque te muevas.</p>
+        <h1 class="title">El último recuerdo</h1>
+        <p class="subtitle">Personajes en realidad aumentada</p>
+        <p class="lead">Apunta la cámara a la imagen de un personaje y mantenla quieta unos segundos. Aparecerá sobre ella y se quedará ahí aunque te muevas. Puedes descubrir otro sin reiniciar la cámara.</p>
         <button class="btn btn--primary" id="btn-start" type="button" disabled>
           <span class="btn__label">Preparando…</span>
         </button>
@@ -90,7 +91,12 @@
     <!-- AR overlay (camera running) -->
     <section class="screen screen--ar" data-screen="ar" hidden>
       <div class="ar-top">
-        <p class="ar-badge"><svg aria-hidden="true"><use href="#emblem"/></svg><span data-bind="guardian-name">El Mohán</span></p>
+        <p class="ar-badge">
+          <svg aria-hidden="true"><use href="#emblem"/></svg>
+          <span class="ar-badge__text">
+            <span class="ar-badge__name" data-bind="guardian-name">Ancestrales</span>
+          </span>
+        </p>
         <button class="btn btn--ghost" id="btn-reset" type="button" aria-label="Reiniciar la escena">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.4-5.7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M4 4v4.5h4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
           <span>Reiniciar</span>
@@ -101,7 +107,7 @@
       <p class="tracking-hint" id="tracking-hint" role="status" aria-live="polite">Mueve el celular despacio para no perder el lugar</p>
 
       <!-- Messages sit under the top bar so they never cover the guardian's feet. -->
-      <p class="toast" id="anchor-toast" role="status" aria-live="polite" hidden><span data-bind="guardian-name">El Mohán</span> se quedó aquí. Puedes moverte a su alrededor.</p>
+      <p class="toast" id="anchor-toast" role="status" aria-live="polite" hidden><span data-bind="guardian-name">El personaje</span> se quedó aquí. Puedes moverte a su alrededor.</p>
       <p class="gesture-tip" id="gesture-tip" hidden>Arrastra con un dedo para girarlo · pellizca para cambiar su tamaño</p>
 
       <div class="ar-dock">
@@ -123,7 +129,7 @@
               </g>
             </svg>
           </div>
-          <p class="coach__text" id="coach-text">Apunta la cámara a la imagen de <span data-bind="guardian-name">El Mohán</span></p>
+          <p class="coach__text" id="coach-text">Apunta a la imagen de un personaje y mantenla quieta unos segundos</p>
         </div>
 
         <!-- Opens the reader; shown while the 3D panel is up. -->

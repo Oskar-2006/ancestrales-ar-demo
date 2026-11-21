@@ -1,35 +1,11 @@
-// Guardian catalogue. The page opens from a plain link (index.html?guardian=<key>; without the
-// parameter it opens DEFAULT_GUARDIAN). The camera then looks for the guardian's picture
-// (figura/<name>.png, shown on a screen or printed): that picture is the image target.
-// To add a guardian: export its .glb into assets/, build its image target with
-// tools/build_image_target.js, and add an entry here.
-//   model        relative path to the .glb (relative paths keep GitHub Pages subpaths working)
-//   idleClip     name of the looping animation to play (falls back to the first clip)
-//   name/tagline user-facing text (Spanish)
-//   lore         text of the floating panel next to the guardian and of the on-screen reader
-//                (Spanish; both are drawn from this one object)
-//     title         large heading (gold)
-//     subtitle      line under the title (italic)
-//     paragraphs    array of strings, one per paragraph
-//   targets      image targets that anchor the guardian in the room (today one picture per guardian);
-//                the guardian appears on the first one recognised. Per target:
-//     name          image target name; must equal "name" inside the target JSON
-//     data          relative path to the JSON written by tools/build_image_target.js
-//     heightOnTarget  figure height as a multiple of the target's width (2 = twice as tall as the
-//                   picture is wide, i.e. 1.5x its 3:4 height), so the figure scales with the picture
-//     footOffset    where the feet stand along the target's vertical axis, in target heights
-//                   (0 = centre, -0.5 = bottom edge, 0.5 = top edge). Used when the target lies
-//                   flat-ish; on a near-vertical target the guardian stands on its lowest edge.
-
 export const GUARDIANS = {
   mohan: {
     name: 'El Mohán',
-    tagline: 'Guardián de las aguas',
-    model: 'assets/mohan-prueba.glb',
-    idleClip: 'Idle',
+    tagline: 'Guardián de los ríos',
+    model: 'assets/mohan.glb',
     lore: {
       title: 'El Mohán',
-      subtitle: 'Guardián de las aguas',
+      subtitle: 'Guardián de los ríos',
       paragraphs: [
         'Viejo, corpulento y de barba larga, con el cabello enredado de algas y musgo de río. Vive en una gruta bajo el agua, en los ríos andinos, sobre todo en el Magdalena, en el Tolima.',
         'Es paciente y burlón, y desconfía de quienes olvidaron el río. Cree que nada se pierde del todo mientras corra el agua.',
@@ -37,11 +13,85 @@ export const GUARDIANS = {
       ],
     },
     targets: [
-      // figura/mohan-figura.png (3:4, built by tools/build_figura.py): the target's width = the picture's width.
       { name: 'mohan-figura', data: 'image-targets/mohan-figura.json', heightOnTarget: 2, footOffset: 0 },
+    ],
+  },
+
+  patasola: {
+    name: 'La Patasola',
+    tagline: 'Cazadora de la espesura',
+    model: 'assets/patasola.glb',
+    lore: {
+      title: 'La Patasola',
+      subtitle: 'Cazadora de la espesura',
+      paragraphs: [
+        'Mujer de una sola pierna, con el cabello largo y enmarañado y un rostro que cambia de bello a temible. Conoce los senderos y las sombras de la selva y se mueve entre la espesura y los caminos.',
+        'Es desconfiada, rápida e implacable con quien invade el monte. Quiere preservar los misterios de la selva y cree que el monte solo se defiende si alguien le teme y lo respeta.',
+      ],
+    },
+    targets: [
+      { name: 'patasola-figura', data: 'image-targets/patasola-figura.json', heightOnTarget: 2, footOffset: 0 },
+    ],
+  },
+
+  hojarasquin: {
+    name: 'Hojarasquín del Monte',
+    tagline: 'Espíritu del bosque',
+    model: 'assets/hojarasquin.glb',
+    lore: {
+      title: 'Hojarasquín del Monte',
+      subtitle: 'Espíritu del bosque',
+      paragraphs: [
+        'Figura cubierta de hojas secas, musgo y ramas, con el cuerpo a medio camino entre hombre y árbol. Vive en los bosques de montaña, entre senderos de hojarasca.',
+        'Es silencioso, tímido y protector. Defiende los bosques y las historias que viven en ellos, y cree que cada camino del bosque es una historia.',
+      ],
+    },
+    targets: [
+      { name: 'hojarasquin-figura', data: 'image-targets/hojarasquin-figura.json', heightOnTarget: 2, footOffset: 0 },
+    ],
+  },
+
+  madremonte: {
+    name: 'La Madremonte',
+    tagline: 'Protectora del equilibrio',
+    model: 'assets/madremonte.glb',
+    lore: {
+      title: 'La Madremonte',
+      subtitle: 'Protectora del equilibrio',
+      paragraphs: [
+        'Mujer alta cubierta de musgo, hojas y bejucos, con un sombrero de ramas que le tapa el rostro. Habita las montañas andinas, donde nacen los ríos y empiezan los bosques.',
+        'Es severa y protectora. Quiere conservar el vínculo entre humanidad, naturaleza y tradición, y cree que todo está conectado.',
+      ],
+    },
+    targets: [
+      { name: 'madremonte-figura', data: 'image-targets/madremonte-figura.json', heightOnTarget: 2, footOffset: 0 },
     ],
   },
 };
 
-// Used when the URL has no ?guardian= parameter at all.
+function personaje(clave, nombre, subtitulo, historia) {
+  const objetivo = clave + '-figura';
+  return {
+    name: nombre, tagline: subtitulo, model: 'assets/' + clave + '.glb',
+    lore: {title: nombre, subtitle: subtitulo, paragraphs: historia},
+    targets: [{name: objetivo, data: 'image-targets/' + objetivo + '.json', heightOnTarget: 2, footOffset: 0}],
+  };
+}
+
+// La ciénaga y el ataque desde el lodo aparecen en el borrador grupal de Ancestrales.
+GUARDIANS.hombrecaiman = personaje('hombrecaiman', 'El Hombre Caimán', 'La Ciénaga subterránea', [
+  'El Hombre Caimán habita una ciénaga bajo tierra. Entre plataformas flotantes, sus mordidas llegan desde el lodo.',
+]);
+
+// Lore de los atacantes (propuesta), a partir del propósito indicado por Oskar.
+const relatos = [
+  'El primero espera a que alguien empiece a contar la historia del Mohán. Le basta robar una palabra: el abuelo se queda en silencio y el niño vuelve a casa sin saber quién vive en el río.',
+  'El segundo busca los nombres escritos al margen del Libro. Los borra letra por letra. Cuando alguien abre la página, reconoce el rostro del guardián, pero ya no sabe cómo llamarlo.',
+  'El tercero sigue a quienes todavía recuerdan. Si una niña cuenta la leyenda de la Patasola, vuelve a su puerta la noche siguiente. Quiere oírla decir que ya se le olvidó.',
+];
+relatos.forEach((relato, indice) => {
+  const numero = indice + 1;
+  const clave = 'enemigo' + numero;
+  GUARDIANS[clave] = personaje(clave, 'Atacante ' + numero, 'Criaturas del Olvido', [relato]);
+});
 export const DEFAULT_GUARDIAN = 'mohan';

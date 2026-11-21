@@ -1,0 +1,21 @@
+{
+  "imagePath": "image-targets/madremonte-figura_luminance.jpg",
+  "metadata": null,
+  "name": "madremonte-figura",
+  "type": "PLANAR",
+  "properties": {
+    "left": 0,
+    "top": 0,
+    "width": 768,
+    "height": 1024,
+    "isRotated": false,
+    "originalWidth": 768,
+    "originalHeight": 1024
+  },
+  "resources": {
+    "originalImage": "madremonte-figura_original.jpg",
+    "croppedImage": "madremonte-figura_cropped.jpg",
+    "thumbnailImage": "madremonte-figura_thumbnail.jpg",
+    "luminanceImage": "madremonte-figura_luminance.jpg"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "imagePath": "image-targets/hojarasquin-figura_luminance.jpg",
+  "metadata": null,
+  "name": "hojarasquin-figura",
+  "type": "PLANAR",
+  "properties": {
+    "left": 0,
+    "top": 0,
+    "width": 900,
+    "height": 1200,
+    "isRotated": false,
+    "originalWidth": 900,
+    "originalHeight": 1200
+  },
+  "resources": {
+    "originalImage": "hojarasquin-figura_original.jpg",
+    "croppedImage": "hojarasquin-figura_cropped.jpg",
+    "thumbnailImage": "hojarasquin-figura_thumbnail.jpg",
+    "luminanceImage": "hojarasquin-figura_luminance.jpg"
+  }
+}

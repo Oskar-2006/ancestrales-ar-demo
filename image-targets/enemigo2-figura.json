@@ -1,0 +1,21 @@
+{
+  "imagePath": "image-targets/enemigo2-figura_luminance.jpg",
+  "metadata": null,
+  "name": "enemigo2-figura",
+  "type": "PLANAR",
+  "properties": {
+    "left": 0,
+    "top": 0,
+    "width": 768,
+    "height": 1024,
+    "isRotated": false,
+    "originalWidth": 768,
+    "originalHeight": 1024
+  },
+  "resources": {
+    "originalImage": "enemigo2-figura_original.jpg",
+    "croppedImage": "enemigo2-figura_cropped.jpg",
+    "thumbnailImage": "enemigo2-figura_thumbnail.jpg",
+    "luminanceImage": "enemigo2-figura_luminance.jpg"
+  }
+}

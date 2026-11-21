@@ -1,4 +1,4 @@
-// Ancestrales AR — the guardian appears on a picture of El Mohán (8th Wall image target, shown on a screen or printed) and stays
+// Ancestrales AR — the guardian appears on a picture of the guardian (8th Wall image target, shown on a screen or printed) and stays
 // anchored in the room (8th Wall world tracking / SLAM), rendered with three.js. A floating lore
 // panel beside it (a billboard in the scene) opens an on-screen reader.
 //
@@ -62,6 +62,7 @@ const UPRIGHT_EXIT_DEG = 42;
 const UPRIGHT_FRONT_OFFSET = 0.15;
 // After "Reiniciar", ignore detections for a moment so the vanish is visible before re-anchoring.
 const RESET_COOLDOWN_MS = 700;
+const SCAN_BATCH_MS = 5000;
 // SLAM "LIMITED" for this long (after anchoring) shows the "move slowly" hint.
 const LIMITED_HINT_DELAY_MS = 1500;
 const ANCHOR_TOAST_MS = 3800;
@@ -121,6 +122,8 @@ function el(tag, text) {
  *          action?: {label: string, onClick: () => void}}} opts
  */
 function showError(opts) {
+  clearInterval(state.scanTimer);
+  state.scanTimer = 0;
   $('#error-title').textContent = opts.title;
   const body = $('#error-body');
   body.replaceChildren();
@@ -153,7 +156,18 @@ const reload = () => window.location.reload();
 const params = new URLSearchParams(window.location.search);
 const previewMode = params.get('preview') === '1';
 const requestedKey = (params.get('guardian') || DEFAULT_GUARDIAN).trim().toLowerCase();
-const guardian = Object.prototype.hasOwnProperty.call(GUARDIANS, requestedKey) ? GUARDIANS[requestedKey] : null;
+const initialKey = Object.prototype.hasOwnProperty.call(GUARDIANS, requestedKey) ? requestedKey : DEFAULT_GUARDIAN;
+let activeKey = initialKey;
+let guardian = GUARDIANS[activeKey];
+const targetOwners = new Map();
+for (const [key, entry] of Object.entries(GUARDIANS)) {
+  for (const target of entry.targets) {
+    if (targetOwners.has(target.name)) throw new Error(`Image target duplicado: ${target.name}`);
+    targetOwners.set(target.name, { key, config: target });
+  }
+}
+// El motor XR8 permite hasta cinco imágenes activas a la vez cuando SLAM está encendido.
+const MAX_SLAM_TARGETS = 5;
 
 function pageUrlFor(key) {
   const url = new URL(window.location.href);
@@ -182,7 +196,7 @@ function showDesktopNotice() {
   showError({
     title: 'Ábrelo en tu celular',
     paragraphs: [
-      `Esta experiencia usa la cámara trasera y los sensores de movimiento de un celular para reconocer la imagen de ${guardian ? guardian.name : 'tu guardián'}.`,
+      'Esta experiencia usa la cámara trasera y los sensores de movimiento de un celular para reconocer las imágenes de los personajes.',
       'Abre este enlace en el teléfono:',
     ],
     url: window.location.href,
@@ -240,12 +254,12 @@ function showEngineLoadError() {
 }
 
 /**
- * Fetches every image target JSON of the guardian. Each imagePath
+ * Carga los JSON de todas las imágenes del catálogo. Cada imagePath
  * ("image-targets/<name>_luminance.jpg") is relative to the page, which is what XR8 resolves
  * it against, so GitHub Pages subpaths keep working.
  */
 function loadTargetData() {
-  return Promise.all(guardian.targets.map(async (cfg) => {
+  return Promise.all(Array.from(targetOwners.values(), async ({ config: cfg }) => {
     const res = await fetch(cfg.data, { cache: 'no-cache' });
     if (!res.ok) throw new Error(`target json ${cfg.data}: HTTP ${res.status}`);
     const data = await res.json();
@@ -256,13 +270,48 @@ function loadTargetData() {
   }));
 }
 
-const targetConfig = (name) => guardian.targets.find((t) => t.name === name) || null;
+/** Reparte el catálogo en lotes y conserva en ellos la imagen del guardián anclado. */
+function nextTargetBatch() {
+  const pinned = state.targetData.find((data) => data.name === state.anchorTargetName);
+  const others = state.targetData.filter((data) => data !== pinned);
+  const capacity = MAX_SLAM_TARGETS - (pinned ? 1 : 0);
+  const count = Math.min(capacity, others.length);
+  const batch = pinned ? [pinned] : [];
+  for (let i = 0; i < count; i++) {
+    batch.push(others[(state.scanCursor + i) % others.length]);
+  }
+  if (others.length) state.scanCursor = (state.scanCursor + count) % others.length;
+  return batch;
+}
+
+function configureTargetBatch(XR8, initial = false) {
+  const batch = nextTargetBatch();
+  const names = new Set(batch.map((data) => data.name));
+  state.activeTargetNames = names;
+  for (const name of state.detections.keys()) {
+    if (!names.has(name)) state.detections.delete(name);
+  }
+  if (state.driverName && !names.has(state.driverName)) state.driverName = null;
+  XR8.XrController.configure(initial
+    ? { disableWorldTracking: false, scale: 'responsive', imageTargetData: batch }
+    : { imageTargetData: batch });
+  console.info('[ancestrales] scanning batch:', Array.from(names).join(', '));
+}
+
+function showGuardianDetails() {
+  bindText('guardian-name', guardian.name);
+  bindText('guardian-tagline', guardian.tagline);
+  document.title = `${guardian.name} · Ancestrales AR`;
+  if (guardian.lore) fillReader(guardian.lore);
+}
+
+const targetConfig = (name) => targetOwners.get(name)?.config || null;
 
 function showTargetLoadError(err) {
   console.error('[ancestrales] image target failed to load', err);
   showError({
     title: 'No se pudo preparar la imagen',
-    paragraphs: ['Faltan los datos para reconocer la imagen de El Mohán. Revisa tu conexión y vuelve a intentarlo.'],
+    paragraphs: ['Faltan los datos para reconocer una o más imágenes. Revisa tu conexión y vuelve a intentarlo.'],
     action: { label: 'Reintentar', onClick: reload },
   });
 }
@@ -341,11 +390,12 @@ function runTweens(now) {
 const state = {
   phase: 'idle', // idle | starting | searching | anchored
   xr: null, // {scene, camera, renderer}
-  targetData: null, // parsed image target JSONs (one per entry in guardian.targets)
+  targetData: null, // JSON de las imágenes de todos los guardianes
   targetDataPromise: null,
   modelTemplate: null,
   clips: [],
-  modelPromise: null,
+  modelCache: new Map(), // ruta del modelo -> glTF cargado; se muestra un guardián a la vez
+  selectionVersion: 0,
   anchor: null, // world anchor (smoothed): feet position, up/front axes, scale = figure height
   root: null, // guardian group: user rotation + size + appear animation
   shadow: null,
@@ -357,6 +407,10 @@ const state = {
   detections: new Map(),
   // The target in view that refines the anchor (the current one stays while it is in view).
   driverName: null,
+  anchorTargetName: null,
+  scanCursor: 0,
+  scanTimer: 0,
+  activeTargetNames: new Set(),
   anchored: false,
   // Where the guardian should stand, from the latest pose of the driving target (world space).
   goal: {
@@ -403,25 +457,24 @@ const tmp = {
 // ---------------------------------------------------------------------------
 
 function loadModel() {
-  if (state.modelPromise) return state.modelPromise;
+  const modelPath = guardian.model;
+  if (state.modelCache.has(modelPath)) return state.modelCache.get(modelPath);
   const loader = new GLTFLoader();
-  state.modelPromise = new Promise((resolve, reject) => {
+  const promise = new Promise((resolve, reject) => {
     loader.load(
-      guardian.model,
-      (gltf) => {
-        state.modelTemplate = gltf.scene;
-        state.clips = gltf.animations || [];
-        resolve(gltf);
-      },
+      modelPath,
+      resolve,
       (evt) => {
-        if (evt.lengthComputable && state.phase === 'starting') {
+        if (evt.lengthComputable && state.phase === 'starting' && guardian.model === modelPath) {
           $('#loading-sub').textContent = `Invocando a ${guardian.name}… ${Math.round((evt.loaded / evt.total) * 100)} %`;
         }
       },
-      (err) => reject(err),
+      reject,
     );
   });
-  return state.modelPromise;
+  state.modelCache.set(modelPath, promise);
+  promise.catch(() => { state.modelCache.delete(modelPath); });
+  return promise;
 }
 
 function showModelError(err) {
@@ -455,6 +508,8 @@ function buildGuardian() {
   anchor.add(root);
 
   const model = state.modelTemplate;
+  model.removeFromParent(); // Mide también las figuras revisitadas en coordenadas locales.
+  model.position.set(0, 0, 0); // el modelo en caché pudo pertenecer al guardián anterior
   model.traverse((o) => {
     if (o.isMesh) {
       o.frustumCulled = false; // skinned meshes can be culled wrongly when their bounds are stale
@@ -720,7 +775,54 @@ function resetUserTransform() {
   applyUserRotation();
 }
 
-/** Picks which target in view refines the anchor: the current one while it is in view, else any. */
+/** Cambia el guardián visible al reconocer otra imagen del catálogo. */
+function selectGuardian(key) {
+  if (key === activeKey) return;
+  state.selectionVersion++;
+  tweens.clear(); // detiene también el destello y las transiciones anteriores
+  closeReader(true);
+  hideMessage($('#anchor-toast'));
+  hideMessage($('#gesture-tip'));
+  pointers.clear();
+  gesture = null;
+  cancelTween(state.appearTween);
+  state.appearTween = null;
+  if (state.panel) {
+    clearTimeout(state.panel.timer);
+    cancelTween(state.panel.tween);
+    state.xr.scene.remove(state.panel.mesh);
+    state.panel.mesh.geometry.dispose();
+    state.panel.mesh.material.dispose();
+    state.panel.texture.dispose();
+    state.panel = null;
+  }
+  $('#btn-read').hidden = true;
+  if (state.anchor) {
+    state.xr.scene.remove(state.anchor);
+    state.shadow.geometry.dispose();
+    state.shadow.material.map.dispose();
+    state.shadow.material.dispose();
+    state.ring.geometry.dispose();
+    state.ring.material.map.dispose();
+    state.ring.material.dispose();
+  }
+  if (state.mixer) state.mixer.stopAllAction();
+  state.anchor = state.root = state.shadow = state.ring = state.spirit = state.mixer = null;
+  state.modelTemplate = null;
+  state.clips = [];
+  state.anchored = false;
+  state.anchorTargetName = null;
+  state.gliding = false;
+  state.appear = 0;
+  state.userScale = 1;
+  state.userRotation = 0;
+  activeKey = key;
+  guardian = GUARDIANS[key];
+  showGuardianDetails();
+  setPhase('searching');
+}
+
+/** Elige la imagen que ajusta el anclaje: la actual si sigue visible, o cualquier otra. */
 function pickDriver() {
   if (state.driverName && state.detections.has(state.driverName)) return state.driverName;
   return state.detections.keys().next().value || null;
@@ -732,6 +834,8 @@ function updateFromDetections() {
   if (performance.now() < state.resetUntil) return;
   const name = pickDriver();
   if (!name) return;
+  const owner = targetOwners.get(name);
+  if (owner.key !== activeKey) selectGuardian(owner.key);
   if (name !== state.driverName) {
     state.driverName = name;
     console.info('[ancestrales] anchor driven by target:', name);
@@ -739,8 +843,11 @@ function updateFromDetections() {
   const cfg = targetConfig(name);
 
   if (!state.anchored) {
+    showGuardianDetails();
     computeStandPose(state.detections.get(name), cfg, false, state.goal);
     state.anchored = true;
+    state.anchorTargetName = name;
+    spawnWhenModelReady();
     spawnGuardian();
     return;
   }
@@ -753,6 +860,7 @@ function onImageFound({ detail }) {
   if (!detail || !targetConfig(detail.name)) return;
   console.info('[ancestrales] image found:', detail.name);
   state.detections.set(detail.name, detail);
+  state.driverName = detail.name; // la nueva imagen tiene prioridad aunque la anterior siga visible
   updateFromDetections();
 }
 
@@ -768,6 +876,7 @@ function onImageLost({ detail }) {
   console.info('[ancestrales] image lost:', detail.name, state.anchored ? '(guardian stays anchored)' : '');
   state.detections.delete(detail.name);
   if (detail.name === state.driverName) state.driverName = null;
+  updateFromDetections();
 }
 
 function onTrackingStatus({ detail }) {
@@ -1342,6 +1451,7 @@ function setPhase(phase) {
 function resetScene() {
   if (state.phase !== 'searching' && state.phase !== 'anchored') return;
   state.anchored = false;
+  state.anchorTargetName = null;
   state.driverName = null;
   state.gliding = false;
   pointers.clear();
@@ -1410,9 +1520,16 @@ function updateFrame() {
 
 /** Calls spawnGuardian once the model is in, if the picture was already anchored while it downloaded. */
 function spawnWhenModelReady() {
-  loadModel().then(() => {
+  const version = state.selectionVersion;
+  const key = activeKey;
+  loadModel().then((gltf) => {
+    if (version !== state.selectionVersion || key !== activeKey) return;
+    state.modelTemplate = gltf.scene;
+    state.clips = gltf.animations || [];
     if (state.anchored && (!state.anchor || !state.anchor.visible)) spawnGuardian();
-  }).catch(showModelError);
+  }).catch((err) => {
+    if (version === state.selectionVersion && key === activeKey) showModelError(err);
+  });
 }
 
 function bindArControls(canvas) {
@@ -1435,11 +1552,11 @@ function appModule() {
       if (status === 'requesting') {
         $('#loading-text').textContent = 'Permite el acceso a la cámara';
       } else if (status === 'hasStream') {
-        $('#loading-text').textContent = 'Despertando al guardián…';
+        $('#loading-text').textContent = 'Cargando el personaje…';
       } else if (status === 'hasVideo') {
         showScreen('ar');
         setPhase('searching');
-        spawnWhenModelReady();
+        updateFromDetections();
       } else if (status === 'failed') {
         showPermissionDenied();
       }
@@ -1552,11 +1669,7 @@ function startAR(XR8) {
   // follow CAMERA_START_HEIGHT and the target's pose/scale come in those same units. 'absolute'
   // (metric) needs an extra calibration walk and adds nothing here, since the guardian is sized
   // from the picture's width anyway.
-  XR8.XrController.configure({
-    disableWorldTracking: false,
-    scale: 'responsive',
-    imageTargetData: state.targetData,
-  });
+  configureTargetBatch(XR8, true);
   XR8.addCameraPipelineModules([
     XR8.GlTextureRenderer.pipelineModule(),
     XR8.Threejs.pipelineModule(),
@@ -1571,6 +1684,11 @@ function startAR(XR8) {
       allowedDevices: XR8.XrConfig.device().MOBILE,
       cameraConfig: { direction: XR8.XrConfig.camera().BACK },
     });
+    if (state.targetData.length > MAX_SLAM_TARGETS) {
+      state.scanTimer = setInterval(() => {
+        if (state.phase === 'searching' || state.phase === 'anchored') configureTargetBatch(XR8);
+      }, SCAN_BATCH_MS);
+    }
   } catch (err) {
     console.error('[ancestrales] XR8.run failed', err);
     showError({
@@ -1659,27 +1777,23 @@ function startPreview() {
 }
 
 function boot() {
-  if (!guardian) {
+  if (requestedKey !== initialKey && params.has('guardian')) {
     showError({
       title: 'Guardián no encontrado',
       paragraphs: [
         `La clave «${requestedKey}» no corresponde a ningún guardián de Ancestrales.`,
         'Revisa que el enlace esté completo.',
       ],
-      action: { label: 'Ver a El Mohán', onClick: () => { window.location.href = pageUrlFor('mohan'); } },
+      action: { label: `Ver a ${GUARDIANS[DEFAULT_GUARDIAN].name}`, onClick: () => { window.location.href = pageUrlFor(DEFAULT_GUARDIAN); } },
     });
     return;
   }
 
-  bindText('guardian-name', guardian.name);
-  bindText('guardian-tagline', guardian.tagline);
-  document.title = `${guardian.name} · Ancestrales AR`;
-  if (guardian.lore) {
-    fillReader(guardian.lore);
-    bindReader();
-  }
+  bindReader();
+  document.title = 'Ancestrales AR';
 
   if (previewMode) {
+    showGuardianDetails();
     startPreview();
     return;
   }
@@ -1702,12 +1816,11 @@ function boot() {
       showUnsupportedBrowser(XR8);
       return;
     }
-    loadModel().catch(() => { /* reported once AR starts */ });
     state.targetDataPromise.then((data) => {
       state.targetData = data;
       btn.disabled = false;
       btn.querySelector('.btn__label').textContent = 'Iniciar AR';
-      status.textContent = 'Ten a mano la imagen de El Mohán (en otra pantalla o impresa). Funciona mejor con buena luz.';
+      status.textContent = 'Ten a mano las imágenes de los personajes (en otra pantalla o impresas). Funciona mejor con buena luz.';
       btn.addEventListener('click', () => startAR(XR8), { once: true });
       console.info('[ancestrales] XR8 ready', typeof XR8.version === 'function' ? XR8.version() : '', '· targets', data.map((d) => d.name).join(', '));
     }).catch(showTargetLoadError);

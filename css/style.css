@@ -320,7 +320,17 @@ body.is-ar #ar-canvas { visibility: visible; }
   font-size: 1rem;
   color: var(--bone);
 }
-.ar-badge svg { width: 28px; height: 28px; color: var(--gold); }
+.ar-badge svg { width: 28px; height: 28px; flex: none; color: var(--gold); }
+.ar-badge { min-width: 0; }
+.ar-badge__text { display: flex; flex-direction: column; min-width: 0; line-height: 1.15; }
+.ar-badge__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ar-badge:has(.ar-badge__note:not([hidden])) { border-radius: 20px; padding-top: 3px; padding-bottom: 3px; }
+.ar-badge:has(.ar-badge__note:not([hidden])) .ar-badge__name { font-size: 0.88rem; } /* long names (Hojarasquín del Monte) must fit next to Reiniciar */
+@media (max-width: 400px) {
+  .ar-badge:has(.ar-badge__note:not([hidden])) { padding-left: 14px; }
+  .ar-badge:has(.ar-badge__note:not([hidden])) svg { display: none; }
+}
+
 
 /* Coach (before the first anchor) and the "Leer historia" button (after it) share the bottom spot. */
 .ar-dock {
