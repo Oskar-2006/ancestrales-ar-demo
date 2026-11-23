@@ -21,7 +21,7 @@ export const GUARDIANS = {
   patasola: {
     name: 'La Patasola',
     tagline: 'Cazadora de la espesura',
-    model: 'assets/patasola.glb',
+    model: 'assets/patasola.glb?v=pose-tarjeta',
     lore: {
       title: 'La Patasola',
       subtitle: 'Cazadora de la espesura',
@@ -36,10 +36,9 @@ export const GUARDIANS = {
   },
 
   hojarasquin: {
-    giroInicial: -Math.PI / 2,
     name: 'Hojarasquín del Monte',
     tagline: 'Espíritu del bosque',
-    model: 'assets/hojarasquin.glb',
+    model: 'assets/hojarasquin.glb?v=pose-tarjeta',
     lore: {
       title: 'Hojarasquín del Monte',
       subtitle: 'Espíritu del bosque',
