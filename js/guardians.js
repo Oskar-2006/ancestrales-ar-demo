@@ -1,5 +1,6 @@
 export const GUARDIANS = {
   mohan: {
+    giroInicial: -Math.PI / 2,
     name: 'El Mohán',
     tagline: 'Guardián de los ríos',
     model: 'assets/mohan.glb',
@@ -35,6 +36,7 @@ export const GUARDIANS = {
   },
 
   hojarasquin: {
+    giroInicial: -Math.PI / 2,
     name: 'Hojarasquín del Monte',
     tagline: 'Espíritu del bosque',
     model: 'assets/hojarasquin.glb',

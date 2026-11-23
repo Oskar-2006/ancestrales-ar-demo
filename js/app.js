@@ -517,6 +517,24 @@ function buildGuardian() {
     }
   });
 
+  if (state.clips.length) {
+    state.mixer = new THREE.AnimationMixer(model);
+    const wanted = (guardian.idleClip || 'idle').toLowerCase();
+    const clip = state.clips.find((c) => c.name.toLowerCase() === wanted)
+      || state.clips.find((c) => /idle|espera|flotar|reposo/i.test(c.name))
+      || state.clips[0];
+    state.mixer.clipAction(clip).setLoop(THREE.LoopRepeat, Infinity).play();
+    state.mixer.update(0);
+    console.info(`[ancestrales] playing clip "${clip.name}"`);
+  } else {
+    console.info('[ancestrales] model has no animations');
+  }
+
+  // Mide la postura inicial del clip, también al volver a escanear una figura.
+  model.updateMatrixWorld(true);
+  model.traverse((objeto) => {
+    if (objeto.isSkinnedMesh) objeto.computeBoundingBox();
+  });
   // Normalize: feet on y = 0, centred on x/z, height = 1 (sized by the anchor's scale).
   const box = new THREE.Box3().setFromObject(model);
   const size = box.getSize(new THREE.Vector3());
@@ -527,6 +545,7 @@ function buildGuardian() {
   const pivot = new THREE.Group();
   pivot.scale.setScalar(k);
   pivot.add(model);
+  pivot.rotation.y = guardian.giroInicial || 0;
   root.add(pivot);
 
   const footprint = Math.max(size.x, size.z, height * 0.35) * k;
@@ -559,18 +578,6 @@ function buildGuardian() {
   const spirit = new THREE.PointLight(0x8fbf6a, 0.35, 2.5, 2);
   spirit.position.set(0, 0.15, 0.25);
   root.add(spirit);
-
-  if (state.clips.length) {
-    state.mixer = new THREE.AnimationMixer(model);
-    const wanted = (guardian.idleClip || 'idle').toLowerCase();
-    const clip = state.clips.find((c) => c.name.toLowerCase() === wanted)
-      || state.clips.find((c) => c.name.toLowerCase().includes('idle'))
-      || state.clips[0];
-    state.mixer.clipAction(clip).setLoop(THREE.LoopRepeat, Infinity).play();
-    console.info(`[ancestrales] playing clip "${clip.name}"`);
-  } else {
-    console.info('[ancestrales] model has no animations');
-  }
 
   state.anchor = anchor;
   state.root = root;
