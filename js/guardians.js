@@ -3,7 +3,7 @@ export const GUARDIANS = {
     giroInicial: -Math.PI / 2,
     name: 'El Mohán',
     tagline: 'Guardián de los ríos',
-    model: 'assets/mohan.glb',
+    model: 'assets/mohan.glb?v=respiracion-1',
     lore: {
       title: 'El Mohán',
       subtitle: 'Guardián de los ríos',
@@ -21,7 +21,7 @@ export const GUARDIANS = {
   patasola: {
     name: 'La Patasola',
     tagline: 'Cazadora de la espesura',
-    model: 'assets/patasola.glb?v=pose-tarjeta',
+    model: 'assets/patasola.glb?v=respiracion-1',
     lore: {
       title: 'La Patasola',
       subtitle: 'Cazadora de la espesura',
@@ -38,7 +38,7 @@ export const GUARDIANS = {
   hojarasquin: {
     name: 'Hojarasquín del Monte',
     tagline: 'Espíritu del bosque',
-    model: 'assets/hojarasquin.glb?v=pose-tarjeta',
+    model: 'assets/hojarasquin.glb?v=respiracion-1',
     lore: {
       title: 'Hojarasquín del Monte',
       subtitle: 'Espíritu del bosque',
@@ -83,6 +83,7 @@ function personaje(clave, nombre, subtitulo, historia) {
 GUARDIANS.hombrecaiman = personaje('hombrecaiman', 'El Hombre Caimán', 'La Ciénaga subterránea', [
   'El Hombre Caimán habita una ciénaga bajo tierra. Entre plataformas flotantes, sus mordidas llegan desde el lodo.',
 ]);
+GUARDIANS.hombrecaiman.model += '?v=respiracion-1';
 
 // Lore de los atacantes (propuesta), a partir del propósito indicado por Oskar.
 const relatos = [
