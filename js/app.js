@@ -291,7 +291,7 @@ function configureTargetBatch(XR8, initial = false) {
   for (const name of state.detections.keys()) {
     if (!names.has(name)) state.detections.delete(name);
   }
-  if (state.driverName && !names.has(state.driverName)) state.driverName = null;
+  if (!names.has(state.candidata?.nombre)) state.candidata = null;
   XR8.XrController.configure(initial
     ? { disableWorldTracking: false, scale: 'responsive', imageTargetData: batch }
     : { imageTargetData: batch });
@@ -405,8 +405,7 @@ const state = {
   mixer: null,
   // Every target currently in view: name -> latest event detail.
   detections: new Map(),
-  // The target in view that refines the anchor (the current one stays while it is in view).
-  driverName: null,
+  candidata: null,
   anchorTargetName: null,
   scanCursor: 0,
   scanTimer: 0,
@@ -421,7 +420,6 @@ const state = {
   },
   gliding: false,
   resetUntil: 0,
-  resetTimer: 0,
   appear: 0, // 0..1 scale factor of the appear/disappear animation
   appearTween: null,
   userScale: 1,
@@ -829,24 +827,30 @@ function selectGuardian(key) {
   setPhase('searching');
 }
 
-/** Elige la imagen que ajusta el anclaje: la actual si sigue visible, o cualquier otra. */
-function pickDriver() {
-  if (state.driverName && state.detections.has(state.driverName)) return state.driverName;
-  return state.detections.keys().next().value || null;
-}
+// Solo las observaciones del motor cuentan como evidencia de identidad.
+const CONFIRMACION_MS = 1000;
+const INTERVALO_MAXIMO_MS = 400;
 
-/** Feeds the latest detections into the anchor (first anchor, refinement or re-anchoring). */
-function updateFromDetections() {
+function observarImagen({ detail }) {
+  if (!detail || !targetConfig(detail.name)) return;
+  const name = detail.name;
+  if (state.activeTargetNames.size && !state.activeTargetNames.has(name)) return;
+  state.detections.set(name, detail);
   if (state.phase !== 'searching' && state.phase !== 'anchored') return;
-  if (performance.now() < state.resetUntil) return;
-  const name = pickDriver();
-  if (!name) return;
-  const owner = targetOwners.get(name);
-  if (owner.key !== activeKey) selectGuardian(owner.key);
-  if (name !== state.driverName) {
-    state.driverName = name;
-    console.info('[ancestrales] anchor driven by target:', name);
+  const ahora = performance.now();
+  if (ahora < state.resetUntil) return;
+  if (name !== state.anchorTargetName) {
+    const candidata = state.candidata;
+    if (!candidata || candidata.nombre !== name || ahora - candidata.ultima > INTERVALO_MAXIMO_MS) {
+      state.candidata = { nombre: name, inicio: ahora, ultima: ahora };
+      return;
+    }
+    candidata.ultima = ahora;
+    if (ahora - candidata.inicio < CONFIRMACION_MS) return;
+    const owner = targetOwners.get(name);
+    if (owner.key !== activeKey) selectGuardian(owner.key);
   }
+  state.candidata = null;
   const cfg = targetConfig(name);
 
   if (!state.anchored) {
@@ -863,27 +867,12 @@ function updateFromDetections() {
   if (state.anchor && state.anchor.visible) applyStandMode();
 }
 
-function onImageFound({ detail }) {
-  if (!detail || !targetConfig(detail.name)) return;
-  console.info('[ancestrales] image found:', detail.name);
-  state.detections.set(detail.name, detail);
-  state.driverName = detail.name; // la nueva imagen tiene prioridad aunque la anterior siga visible
-  updateFromDetections();
-}
-
-function onImageUpdated({ detail }) {
-  if (!detail || !targetConfig(detail.name)) return;
-  state.detections.set(detail.name, detail);
-  updateFromDetections();
-}
-
 function onImageLost({ detail }) {
   if (!detail || !targetConfig(detail.name)) return;
   // The guardian stays where it is: SLAM keeps its world pose fixed while the user moves around.
   console.info('[ancestrales] image lost:', detail.name, state.anchored ? '(guardian stays anchored)' : '');
   state.detections.delete(detail.name);
-  if (detail.name === state.driverName) state.driverName = null;
-  updateFromDetections();
+  if (state.candidata?.nombre === detail.name) state.candidata = null;
 }
 
 function onTrackingStatus({ detail }) {
@@ -1459,7 +1448,8 @@ function resetScene() {
   if (state.phase !== 'searching' && state.phase !== 'anchored') return;
   state.anchored = false;
   state.anchorTargetName = null;
-  state.driverName = null;
+  state.candidata = null;
+  state.detections.clear();
   state.gliding = false;
   pointers.clear();
   gesture = null;
@@ -1468,11 +1458,7 @@ function resetScene() {
   hideMessage($('#anchor-toast'));
   hideMessage($('#gesture-tip'));
   setPhase('searching');
-  // A picture still in view re-anchors once the vanish has played (imageupdated keeps coming while
-  // it moves; the timer covers a picture held perfectly still).
   state.resetUntil = performance.now() + RESET_COOLDOWN_MS;
-  clearTimeout(state.resetTimer);
-  state.resetTimer = setTimeout(updateFromDetections, RESET_COOLDOWN_MS + 20);
   console.info('[ancestrales] reset: anchor cleared');
 }
 
@@ -1562,8 +1548,7 @@ function appModule() {
         $('#loading-text').textContent = 'Cargando el personaje…';
       } else if (status === 'hasVideo') {
         showScreen('ar');
-        setPhase('searching');
-        updateFromDetections();
+        setPhase(state.anchored ? 'anchored' : 'searching');
       } else if (status === 'failed') {
         showPermissionDenied();
       }
@@ -1594,8 +1579,8 @@ function appModule() {
           console.info('[ancestrales] image targets scanning:', (detail.imageTargets || []).map((t) => t.name).join(', '));
         },
       },
-      { event: 'reality.imagefound', process: onImageFound },
-      { event: 'reality.imageupdated', process: onImageUpdated },
+      { event: 'reality.imagefound', process: observarImagen },
+      { event: 'reality.imageupdated', process: observarImagen },
       { event: 'reality.imagelost', process: onImageLost },
       { event: 'reality.trackingstatus', process: onTrackingStatus },
     ],
@@ -1773,10 +1758,8 @@ function startPreview() {
   setPhase('searching');
   bindArControls(canvas);
   const fake = previewDetection();
-  state.detections.set(fake.name, fake);
-  updateFromDetections();
-  spawnWhenModelReady();
   renderer.setAnimationLoop(() => {
+    if (!state.anchored) observarImagen({ detail: fake });
     updateFrame();
     renderer.render(state.xr.scene, state.xr.camera);
   });
